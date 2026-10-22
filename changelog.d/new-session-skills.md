@@ -15,5 +15,6 @@
   message (`$name`, `/name`, or `@name` for OpenCode 2). A first message to OpenCode attaches its
   `@skill` as any Chat send does; before OpenCode has a session nothing tells its version, so the `@`
   is sent as the plain text it is.
-  The chat's composer has a New tab with an agent… button that opens the dialog on the pane's
-  workspace.
+  In a desktop window the chat's composer can show a New tab with an agent… button that opens the
+  dialog on the pane's workspace; it is off until turned on in Settings → Chat → Composer (New tab
+  button), and the tab menu opens the dialog either way.

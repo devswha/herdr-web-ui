@@ -34,9 +34,6 @@ import { SidebarResizer } from "./components/SidebarResizer.tsx";
 import { storedSidebarWidth } from "./lib/sidebarWidth.ts";
 import { receiveSeen } from "./lib/seenFinishes.ts";
 import { useSidebarActivityState } from "./lib/sidebarActivity.tsx";
-import { agentRoster } from "./lib/agentRoster.ts";
-import { attentionCandidates, nextAttentionTarget } from "./lib/attentionJump.ts";
-import { currentSidebarPins } from "./lib/sidebarPins.ts";
 import { FilePanelResizer } from "./components/FilePanelResizer.tsx";
 import { FILE_PANEL_DOCK_QUERY, storedFilePanelWidth } from "./lib/filePanelWidth.ts";
 import { openPresentation, type FilePresentation } from "./lib/filePresentation.ts";
@@ -1044,11 +1041,8 @@ export function App() {
     && !dialogCover && !paneCovered()
     && contentReady && paneContentPresented(contentKey),
   [locked, linkLanded, drawerOpen, settingsOpen, newSessionOpen, filesOpen, machineDialog, paletteOpen, diffViewing, viewing, fileDocked, dialogCover, contentReady, contentKey]);
-  // the live counters per PC and the finishes looked at here (lib/sidebarActivity.tsx): one source
-  // for the sidebar's two lists and the keyboard's next agent needing attention, so a finish opened
-  // here reads as ready to all of them at once
+  // one source for the sidebar's two lists: live counters per PC and finishes looked at here
   const activity = useSidebarActivityState(machines, selectedMachineId, presentedPaneId, paneInFront, shareSeen);
-  const activityRef = useRef(activity); activityRef.current = activity;
 
   const pickView = useCallback((machineId: string, paneId: string, next: PaneView) => {
     const key = paneStorageId(machineId, paneId);
@@ -1396,16 +1390,6 @@ export function App() {
         const next = panes[(index + direction + panes.length) % panes.length];
         if (next) selectPane(next.pane_id);
       },
-      selectNextAttention: () => {
-        // the Agents list's rows as it draws them, read at the press (lib/attentionJump.ts): a PC gone
-        // away or a finish read meanwhile is never jumped to
-        const roster = agentRoster(machinesRef.current, { byActivity: settings.agentOrder === "activity", seqs: activityRef.current.seqs, pinned: currentSidebarPins() });
-        const target = nextAttentionTarget(attentionCandidates([...roster.pinned, ...roster.rest], activityRef.current.status), selectionRef.current);
-        if (target === null) return false;
-        // this browser's pick alone, as a sidebar tap: herdr's focus and the other devices stay put
-        selectTargetRef.current(target.machineId, target.paneId);
-        return true;
-      },
       setView,
       toggleView: () => { setView(view === "chat" ? "terminal" : "chat"); setDrawerOpen(false); },
       focusInput: () => paneControls.current?.focusInput(),
@@ -1493,7 +1477,7 @@ export function App() {
         void zoomPane(paneId, mode, machineId).then(() => void load()).catch((err) => layoutRefused("pane zoom failed", err));
       } : null,
     }),
-    [selectPane, selectedPaneId, selectedMachineId, setView, view, updateSettings, settings.agentOrder, resolvedTheme, canSignOut, lock, bellVisible, bell.run, enableNotifications, load, layoutRefused, lenses],
+    [selectPane, selectedPaneId, selectedMachineId, setView, view, updateSettings, resolvedTheme, canSignOut, lock, bellVisible, bell.run, enableNotifications, load, layoutRefused, lenses],
   );
 
   useShortcuts(actions, locked === false);
@@ -1849,6 +1833,7 @@ export function App() {
                         view={item ? lensOf(item) : slotView}
                         // the composer's way to the terminal: the selected pane's lens, or the pane's own remembered one
                         onOpenTerminal={item ? () => { if (active && item.pane_id === selectedPaneId) setView("terminal"); else pickView(machineId, item.pane_id, "terminal"); } : undefined}
+                        onOpenChat={item ? () => { if (active && item.pane_id === selectedPaneId) setView("chat"); else pickView(machineId, item.pane_id, "chat"); } : undefined}
                         // /resume lists the pane's own agent's sessions, and only for an agent whose store is read
                         onOpenHistory={item && sessionHistoryAgent(item.agent) !== null ? () => actions.openSessionHistory({ machineId, workspaceId: item.workspace_id, agent: item.agent, scope: "pane" }) : undefined}
                         // the composer's new-agent button: the New tab dialog on this pane's workspace, as the tab menu opens it

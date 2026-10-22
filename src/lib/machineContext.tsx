@@ -1,6 +1,6 @@
 import { createContext, useContext, useMemo } from "react";
 import * as api from "./api.ts";
-import type { CreateWorktreeRequest, OpenWorktreeRequest, PaneDirection, PaneRewindRequest, PluginActionRequest, RemoveWorktreeRequest, SessionHistoryAgent, SplitPaneDirection } from "../../shared/protocol.ts";
+import type { CreateWorktreeRequest, OpenWorktreeRequest, PaneDirection, PluginActionRequest, RemoveWorktreeRequest, SessionHistoryAgent, SplitPaneDirection } from "../../shared/protocol.ts";
 import type { ZoomMode } from "./layoutMap.ts";
 export const MachineContext = createContext("local");
 export const useMachineId = () => useContext(MachineContext);
@@ -14,7 +14,6 @@ export function useMachineApi() {
     fetchPanePrompt: (pane: string) => api.fetchPanePrompt(pane, id),
     fetchPanePromptState: (pane: string) => api.fetchPanePromptState(pane, id),
     answerPanePrompt: (answer: Parameters<typeof api.answerPanePrompt>[0]) => api.answerPanePrompt(answer, id),
-    rewindPane: (request: PaneRewindRequest) => api.rewindPane(request, id),
     uploadPaneImage: (pane: string, image: Blob) => api.uploadPaneImage(pane, image, id),
     fetchPaneCommands: (pane: string) => api.fetchPaneCommands(pane, id),
     fetchAgentCommands: (agent: string, cwd: string | null) => api.fetchAgentCommands(agent, cwd, id),
