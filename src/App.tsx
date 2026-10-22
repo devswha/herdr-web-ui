@@ -791,8 +791,9 @@ export function App() {
       opened: () => preferencesResubscribedRef.current(),
       // lost (the browser reconnects by itself): a shared-settings save waits for that instead of retrying
       lost: () => preferencesDisconnectedRef.current(),
-      // the browser gave up on it (a proxy's 502 during a restart): saves stop waiting for it while a new
-      // one is opened (after a 401 the next poll locks the app, which ends this effect and its wait)
+      // the browser gave up on it (a proxy's 502 during a restart): a save nobody refused stops waiting for
+      // it while a new one is opened, and a refused one waits for that one's opening document (after a 401
+      // the next poll locks the app, which ends this effect and its wait)
       closed: () => preferencesClosedRef.current(),
       message: onMessage,
     });

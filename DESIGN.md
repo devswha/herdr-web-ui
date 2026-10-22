@@ -2317,11 +2317,14 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   phrase on one line.
   The change is sent again every few seconds; after three failures in a row sending pauses until
   Retry, the event stream reopens or a longer wait ends (a minute, doubling up to five), and edits
-  made meanwhile go out with the next send. A refused change gives way where another browser saved
-  the same setting or the pins meanwhile, so a late send never overwrites the newer value. While the
-  event stream is lost nothing is resent on its own (only Retry goes, once); its reopening sends
-  what is unsent, in the same one chain. A stream the browser gives up on (a proxy's 502) holds
-  nothing back, and the app opens a new one. The alert clears only when nothing unsent is left. This
+  made meanwhile go out with the next send. A refused value, while it is still as it was sent, gives
+  way where another browser saved the same setting or the pins meanwhile, so a late send never
+  overwrites the newer value; a value picked again after the refusal is the newest and goes out over
+  what arrived, as any edit does. While the event stream is lost nothing is resent on its own (only
+  Retry goes, once); its reopening sends what is unsent, in the same one chain, after the server's
+  opening document. A stream the browser gives up on (a proxy's 502) holds back only a refused change,
+  until the new stream the app opens brings that document, so a change nobody refused still goes and
+  its refusal shows with Retry. The alert clears only when nothing unsent is left. This
   follows the app's actionable-error rule (one sentence and the control that does it, causes folded)
   as drawn in the Codex theme; it differs from AoE's per-field retry store because Ovis shares one
   ordered change set, so Retry resends the current change, never an old request body.

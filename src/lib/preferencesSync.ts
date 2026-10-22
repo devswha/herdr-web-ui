@@ -8,11 +8,12 @@
  * setting by setting: a change made here and not yet sent stays, and goes out over what arrived.
  * After three failed saves in a row, sending pauses: the change stays in this page, edits made then
  * join it, and it goes again on Retry, when the event stream reopens, or once a longer wait ends (each
- * refusal after the pause doubles it). Once the server refuses a save, what is unsent here (edits made
- * since included) gives way where another browser saved the same setting (or the pins) since: sent
- * late, it would overwrite the newer value. While the event stream is lost, nothing goes out on its
- * own either: its reopening sends what is unsent. A stream the browser gave up on (App opens a new
- * one) holds nothing back.
+ * refusal after the pause doubles it). A value the server refused, still as it was sent, gives way
+ * where another browser saved the same setting (or the pins) since: sent late, it would overwrite the
+ * newer value. A value changed here after the refusal is a new change, and goes out over what arrived
+ * as any does. While the event stream is lost, nothing goes out on its own either: its reopening sends
+ * what is unsent. A stream the browser gave up on (App opens a new one) holds back only a refused
+ * change, until the new stream's opening document is read; anything else goes, so a refusal shows.
  */
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { mirrorPalette, SHARED_SETTING_KEYS, type PreferencesChange, type SharedPreferences, type SharedSettingKey } from "../../shared/preferences.ts";
@@ -69,14 +70,15 @@ export interface Taken {
  * cannot read (a newer release's value stays the others'). `inFlight` is the change the document
  * answers: a value the server took is no longer this browser's own, so the document's stands (a
  * document from before the change landed is held until the answer, lib/preferencesSync.ts). With
- * `force` (a watching device, which sends nothing) every value is taken. With `refused` (the server
- * refused this browser's change and has not taken one since) an unsent value gives way where the
- * document's differs from `base`: another browser saved that setting after the change was made, and
- * the change, sent late, would overwrite the newer value. The
+ * `force` (a watching device, which sends nothing) every value is taken. `refused` is the last change
+ * the server refused (it has taken none since): a value of it this browser still holds as sent gives
+ * way where the document's differs from `base`, since another browser saved that setting after the
+ * change was made, and the change, sent late, would overwrite the newer value. A value changed here
+ * after the refusal is not the refused one: it stays and goes out next, as any unsent edit. The
  * baseline takes the server's values either way. The first pins the server holds join this browser's:
  * nobody loses pins when a server begins sharing them; after that the last write wins.
  */
-export function takePreferences(base: Baseline, local: Local, remote: SharedPreferences, inFlight: PreferencesChange | null, force = false, refused = false): Taken {
+export function takePreferences(base: Baseline, local: Local, remote: SharedPreferences, inFlight: PreferencesChange | null, force = false, refused: PreferencesChange | null = null): Taken {
   const settings: Shared = { ...base.settings };
   const patch: Record<string, unknown> = {};
   const incoming = { ...remote.settings };
@@ -94,7 +96,7 @@ export function takePreferences(base: Baseline, local: Local, remote: SharedPref
     if (!same(sanitizeSettings({ [key]: value })[key], value)) continue;
     const sent = inFlight !== null && key in inFlight.settings && same(inFlight.settings[key], local.settings[key]);
     const edited = !same(local.settings[key], base.settings[key]) && !sent;
-    const overtaken = refused && !same(value, base.settings[key]);
+    const overtaken = refused !== null && key in refused.settings && same(local.settings[key], refused.settings[key]) && !same(value, base.settings[key]);
     settings[key] = value;
     if (force || !edited || overtaken) patch[key] = value;
   }
@@ -107,7 +109,7 @@ export function takePreferences(base: Baseline, local: Local, remote: SharedPref
     else {
       const sent = inFlight?.pins !== undefined && same(inFlight.pins, local.pins);
       const edited = !same(local.pins, base.pins) && !sent;
-      const overtaken = refused && !same(remote.pins, base.pins);
+      const overtaken = refused?.pins !== undefined && same(local.pins, refused.pins) && !same(remote.pins, base.pins);
       if (force || !edited || overtaken) pins = [...remote.pins];
     }
   }
@@ -133,7 +135,7 @@ export interface PreferencesSync {
   resubscribed(): void;
   /** the event stream was lost (App's EventSource): no save goes out on its own until `resubscribed` or `closed` */
   disconnected(): void;
-  /** the browser gave up on the event stream (EventSource CLOSED, App opens a new one): saves stop waiting for it */
+  /** the browser gave up on the event stream (EventSource CLOSED, App opens a new one): a change nobody refused stops waiting for it; a refused one waits for `resubscribed` or `retry` */
   closed(): void;
 }
 
@@ -170,14 +172,17 @@ export function usePreferencesSync(enabled: boolean): PreferencesSync {
   // a paused save's longer wait, which ends the pause for one more send; apart from `retryTimer`,
   // since the send effect's cleanup (it runs again as the pause begins) must not cancel it
   const pauseTimer = useRef<number | undefined>(undefined);
-  // the server refused this browser's change (or it was lost on the way) and has taken none since: a
-  // newer value another browser saves meanwhile wins over the unsent one here (takePreferences)
-  const refused = useRef(false);
+  // the last change the server refused (or that was lost on the way), until it takes one: a newer value
+  // another browser saves meanwhile wins over a value of it still unsent here as it was (takePreferences)
+  const refused = useRef<PreferencesChange | null>(null);
   // mounted and enabled: an answer that arrives after either ended is still read, but sets no wait
   const live = useRef(false);
   // the event stream is lost: the server is likely unreachable, so nothing is sent until it reopens
   const [streamLost, setStreamLost] = useState(false);
   const streamLostRef = useRef(false);
+  // the browser gave up on the event stream and App's new one has not opened: no document from another
+  // browser can arrive, so a refused change waits for the new stream's opening one (or Retry)
+  const streamClosed = useRef(false);
   // the user's Retry goes once even while the stream is lost; the send it starts clears this, and so
   // does an answer that leaves nothing unsent (a Retry pressed while a save was on its way)
   const userRetry = useRef(false);
@@ -226,7 +231,7 @@ export function usePreferencesSync(enabled: boolean): PreferencesSync {
   /** sending stopped for good (a watching device, a server without the route): nothing is unconfirmed */
   const standDown = useCallback(() => {
     failures.current = 0;
-    refused.current = false;
+    refused.current = null;
     window.clearTimeout(pauseTimer.current);
     userRetry.current = false;
     setSaveError(null);
@@ -255,19 +260,25 @@ export function usePreferencesSync(enabled: boolean): PreferencesSync {
   // saved elsewhere before it goes again (takePreferences' `refused`)
   const resubscribed = useCallback(() => {
     streamLostRef.current = false;
+    streamClosed.current = false;
     setStreamLost(false);
     resume();
   }, [resume]);
   const disconnected = useCallback(() => {
     streamLostRef.current = true;
+    streamClosed.current = false;
     setStreamLost(true);
     window.clearTimeout(retryTimer.current);
   }, []);
-  // no reopening to wait for (a proxy's 502 during a restart, a 401): what is unsent goes on the usual
-  // waits again, so a refusal shows with its Retry; App's new stream calls `resubscribed` once it opens
+  // no reopening to wait for (a proxy's 502 during a restart, a 401): a change nobody refused goes on
+  // the usual wait again, so a refusal shows with its Retry; a refused one waits for App's new stream,
+  // whose opening document comes before it (`resubscribed`), since it cannot learn what another
+  // browser saved meanwhile until then
   const closed = useCallback(() => {
     streamLostRef.current = false;
+    streamClosed.current = true;
     setStreamLost(false);
+    window.clearTimeout(retryTimer.current);
   }, []);
 
   const change = loaded ? preferencesChange(base.current, { settings, pins }) : null;
@@ -283,14 +294,14 @@ export function usePreferencesSync(enabled: boolean): PreferencesSync {
   }, [enabled]);
   useEffect(() => {
     if (!enabled || !loaded || off.current || readOnly.current || paused || pending === null || inFlight.current !== null) return;
-    if (streamLost && !userRetry.current) return;
+    if ((streamLost || (streamClosed.current && refused.current !== null)) && !userRetry.current) return;
     const timer = window.setTimeout(() => {
       userRetry.current = false;
       const body = JSON.parse(pending) as PreferencesChange;
       inFlight.current = body;
       savePreferences(body).then((saved) => {
         // the server took this change: an unsent edit made meanwhile goes over what arrived, as any does
-        refused.current = false;
+        refused.current = null;
         // An older server silently drops new names. Acknowledge exactly what was sent, not
         // today's local value: an edit made while the request was in flight still goes next.
         for (const key of SHARED_SETTING_KEYS) {
@@ -309,9 +320,8 @@ export function usePreferencesSync(enabled: boolean): PreferencesSync {
         }
         setAttempt((count) => count + 1);
       }).catch((error: unknown) => {
-        // a document held while this was on its way is read as one that came after the refused change
-        // (a watching device, a server without the route and an undone change stand down, which clears it)
-        refused.current = true;
+        // a document held while this was on its way is read before this refusal counts: an edit made
+        // meanwhile is the newest here, and the refused value itself stays unless it was refused before
         settled();
         if (error instanceof ApiError && error.status === 403) {
           readOnly.current = true;
@@ -326,6 +336,8 @@ export function usePreferencesSync(enabled: boolean): PreferencesSync {
           // the same refusal every RETRY_MS is one state, not a render each time
           const next = userErrorMessage(error);
           setSaveError((before) => before !== null && before.message === next.message && before.detail === next.detail ? before : next);
+          // what gives way to a newer value from elsewhere: these values, while still unsent here as sent
+          refused.current = body;
           failures.current += 1;
           // a Retry pressed while this save was on its way still owes its own send: it goes now, not after the wait
           if (userRetry.current && failures.current < PAUSE_AFTER) { setAttempt((count) => count + 1); return; }
@@ -334,9 +346,9 @@ export function usePreferencesSync(enabled: boolean): PreferencesSync {
           if (failures.current >= PAUSE_AFTER) {
             setPaused(true);
             // the pause ends for one more send after a longer wait, so a server that can write again
-            // gets the change without a Retry; a lost stream holds that send until it reopens
+            // gets the change without a Retry; a lost or closed stream holds that send until it reopens
             if (live.current) pauseTimer.current = window.setTimeout(() => setPaused(false), pausedWait(failures.current));
-          } else if (live.current && !streamLostRef.current) retryTimer.current = window.setTimeout(() => setAttempt((count) => count + 1), RETRY_MS);
+          } else if (live.current && !streamLostRef.current && !streamClosed.current) retryTimer.current = window.setTimeout(() => setAttempt((count) => count + 1), RETRY_MS);
         }
       });
     }, SEND_AFTER_MS);
