@@ -4,7 +4,7 @@
  *
  * The project's site is ovis.sh (ovis-site/). herdrweb.dev keeps only what installed users and CI
  * fetch from it: the one-line installers, the browser demo, and site/index.html and
- * site/zh/index.html, which forward to https://ovis.sh/ (noindex, so no sitemap lists them).
+ * site/zh/index.html, which forward to https://ovis.sh/ (their canonical link is ovis.sh, so no sitemap lists them).
  *
  * demo/ is the app itself, built by Vite with relative asset paths into demo/app/, loaded behind
  * site/demo/transport.ts (bundled to demo-transport.js and injected before the app's scripts) so it

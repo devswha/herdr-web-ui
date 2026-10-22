@@ -451,7 +451,7 @@ bun scripts/film/render.ts check                # acceptance frame grabs, sizes,
 The project's website is <https://ovis.sh/>, served from `ovis-site/`. <https://herdrweb.dev/> (GitHub
 Pages, built from `site/`) keeps only what installed users and CI fetch from it: `install.sh`,
 `install.ps1` and the browser demo at `/demo/`. Its home page (`site/index.html`, and `site/zh/index.html`
-at `/zh/`) is a `noindex` page whose canonical link, meta refresh and script forward to
+at `/zh/`) is a page whose canonical link, meta refresh and script forward to
 <https://ovis.sh/>; ovis.sh hands `/install.sh`, `/install.ps1` and `/demo/` back to herdrweb.dev
 (`ovis-site/_redirects`). `bun run build:site` assembles `_site/`: those pages, the Google site
 verification file, the installers, the favicons and the demo. It writes no sitemap.
