@@ -4,9 +4,8 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 
 describe("remote entry shell agents", () => {
-  it("offers an agent installed only on the login shell's PATH", async () => {
+  it.skipIf(process.platform === "win32")("offers an agent installed only on the login shell's PATH", async () => {
     // regression (fails on main): the bridge a remote PC runs asked its own bare PATH alone
-    if (process.platform === "win32") return;
     const herdr = Bun.which("herdr");
     expect(herdr).not.toBeNull();
     const root = mkdtempSync("/tmp/hre-");

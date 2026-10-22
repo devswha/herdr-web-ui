@@ -1340,7 +1340,7 @@ describe("workspace and discovery endpoints", () => {
 
   it.skipIf(process.platform === "win32")("offers a shell agent found only on its login shell's PATH, starts that same executable, and keeps hits and misses until the next run", async () => {
     // a service PATH without gjc, and a test-owned login shell whose -l run puts it on PATH: no dotfile is read
-    const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-login-path-"));
+    const root = mkdtempSync(join(tmpdir(), "ovis-login-path-"));
     const home = join(root, "home"), serviceBin = join(root, "service bin"), loginBin = join(root, "login bin");
     for (const dir of [home, serviceBin, loginBin]) mkdirSync(dir);
     const gjc = join(loginBin, "gjc");
@@ -1355,13 +1355,14 @@ describe("workspace and discovery endpoints", () => {
     const real = loginPathProbe({ shell, env: { HOME: home, PATH: serviceBin } });
     let runs = 0;
     const probe: LoginPathProbe = (signal) => { runs += 1; return real(signal); };
-    let tick: () => void = () => undefined;
-    const shellAgents = new ShellAgentLocator({ servicePath: () => serviceBin, probe, schedule: (refresh) => { tick = refresh; return () => undefined; } });
-    const state = mkdtempSync(join(tmpdir(), "herdr-web-ui-login-path-state-"));
+    // the answer's age is read from this clock: a minute passes only when the test says
+    let clock = 0;
+    const shellAgents = new ShellAgentLocator({ servicePath: () => serviceBin, probe, now: () => clock });
+    const state = mkdtempSync(join(tmpdir(), "ovis-login-path-state-"));
     const app = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: state, shellAgents });
     const url = `http://127.0.0.1:${app.port}`;
     const kinds = async () => ((await (await fetch(`${url}/api/agents`)).json()) as { agents: AgentKind[] }).agents;
-    const owned = await workspaceCreate({ cwd: tmpdir(), label: "herdr-web-ui-test-login-path" });
+    const owned = await workspaceCreate({ cwd: tmpdir(), label: "ovis-test-login-path" });
     const within = <T,>(promise: Promise<T>, ms: number, what: string): Promise<T> => {
       let timer: ReturnType<typeof setTimeout> | undefined;
       return Promise.race([promise, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(what)), ms); })]).finally(() => clearTimeout(timer));
@@ -1383,7 +1384,9 @@ describe("workspace and discovery endpoints", () => {
     const releaseFixture = () => { try { closeSync(openSync(release, fsConstants.O_WRONLY | fsConstants.O_NONBLOCK)); } catch { /* no reader: it never started or is gone */ } };
     let launchedPid: number | null = null;
     try {
-      // concurrent first reads share the warm-up run
+      // no login shell runs until something asks
+      expect(runs).toBe(0);
+      // concurrent first reads share one run
       const reads = await Promise.all(Array.from({ length: 6 }, kinds));
       for (const agents of reads) {
         expect(agents).toContainEqual({ kind: "gjc", label: "Gajae Code", installed: true });
@@ -1408,12 +1411,12 @@ describe("workspace and discovery endpoints", () => {
       // a removed executable is offered no more, and nothing else takes its place before the next run
       rmSync(gjc);
       expect((await kinds()).map((agent) => agent.kind)).not.toContain("gjc");
-      tick();
+      clock += 60_000;
       expect((await kinds()).map((agent) => agent.kind)).not.toContain("gjc");
-      // back again: the kept miss holds until the timer's next run sees it
+      // back again: the kept miss holds until a read after the answer is a minute old runs the next one
       writeGjc();
       expect((await kinds()).map((agent) => agent.kind)).not.toContain("gjc");
-      tick();
+      clock += 60_000;
       expect(await kinds()).toContainEqual({ kind: "gjc", label: "Gajae Code", installed: true });
       expect(runs).toBe(3);
 

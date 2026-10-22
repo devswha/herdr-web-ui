@@ -260,7 +260,6 @@ export function createServer(
   const portalGuards = () => ({ tokenSet: token !== "", serveOnly });
 
   const shellAgents = options.shellAgents ?? new ShellAgentLocator({ probe: null });
-  shellAgents.start();
   const openCodeState = new OpenCodePromptState();
   const draftTimer = setInterval(() => openCodeState.prune(), 60_000);
   draftTimer.unref();
