@@ -1003,6 +1003,7 @@ export const ZH: Record<string, string> = {
   "Relay": "中继",
   "Stop": "停止",
   "Stopping…": "正在停止…",
+  "Recovering…": "正在恢复…",
   "Set HERDR_WEB_TOKEN on this PC and restart the app to start Portal.": "要启动 Portal，请在此 PC 上设置 HERDR_WEB_TOKEN 并重启应用。",
   "Portal is a second way in: unset HERDR_WEB_TAILSCALE_SERVE_ONLY on this PC and restart the app first.": "Portal 是另一条访问途径：请先在此 PC 上取消 HERDR_WEB_TAILSCALE_SERVE_ONLY 并重启应用。",
   "Portal is not installed on this PC.": "此 PC 未安装 Portal。",

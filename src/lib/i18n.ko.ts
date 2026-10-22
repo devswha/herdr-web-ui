@@ -999,6 +999,7 @@ export const KO: Record<string, string> = {
   "Relay": "릴레이",
   "Stop": "중지",
   "Stopping…": "중지 중…",
+  "Recovering…": "복구 중…",
   "Set HERDR_WEB_TOKEN on this PC and restart the app to start Portal.": "Portal을 시작하려면 이 PC에 HERDR_WEB_TOKEN을 설정하고 앱을 다시 시작하세요.",
   "Portal is a second way in: unset HERDR_WEB_TAILSCALE_SERVE_ONLY on this PC and restart the app first.": "Portal은 또 하나의 접속 경로입니다. 먼저 이 PC에서 HERDR_WEB_TAILSCALE_SERVE_ONLY를 해제하고 앱을 다시 시작하세요.",
   "Portal is not installed on this PC.": "이 PC에 Portal이 설치되어 있지 않습니다.",

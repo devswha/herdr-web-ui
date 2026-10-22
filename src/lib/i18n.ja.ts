@@ -1001,6 +1001,7 @@ export const JA: Record<string, string> = {
   "Relay": "リレー",
   "Stop": "停止",
   "Stopping…": "停止しています…",
+  "Recovering…": "復旧しています…",
   "Set HERDR_WEB_TOKEN on this PC and restart the app to start Portal.": "Portal を開始するには、この PC で HERDR_WEB_TOKEN を設定してアプリを再起動してください。",
   "Portal is a second way in: unset HERDR_WEB_TAILSCALE_SERVE_ONLY on this PC and restart the app first.": "Portal はもう一つの入口です。先にこの PC で HERDR_WEB_TAILSCALE_SERVE_ONLY を解除し、アプリを再起動してください。",
   "Portal is not installed on this PC.": "この PC には Portal がインストールされていません。",
