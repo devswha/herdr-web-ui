@@ -32,7 +32,7 @@ it("forwards omitted zero and uint32 boundary counts unchanged", async () => {
 
 it("refuses invalid lines before any pane read", async () => {
   // Number() reads each of these as an integer from 0 to 4294967295 (the first two by rounding), so only the raw text can refuse them
-  const nearMisses = ["0.99999999999999999", "4294967294.99999999999", "1.0", "1e3", "%2B5", "%205", "0x10", "0b1"];
+  const nearMisses = ["0.99999999999999999", "4294967294.99999999999", "1.0", "1e3", "%2B5", "%205", "5%0A", "0x10", "0b1"];
   const values = ["", "%20%20", "-1", "0.5", "NaN", "Infinity", "-Infinity", String(UINT32_MAX + 1), "9007199254740993", "abc", ...nearMisses];
   for (const pane of ["w1:p1", "w9999:p9999"]) {
     for (const value of values) {
