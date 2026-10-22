@@ -4,8 +4,9 @@ import { join } from "node:path";
 
 // ci.yml runs on pushes to main (windows-install.yml has no push trigger). Pushes to main share one group, as in
 // oh-my-openagent's ci.yml: a push run is never cancelled, so the running main run always finishes, and GitHub keeps
-// only the newest waiting one, which covers the merges in between. A pull request keeps one group per branch (per
-// caller workflow) and cancels its superseded run. The values are compared whole, as parsed: any edit to them has
+// only the newest waiting one, which covers the merges in between. A manual run (or a caller's, through
+// workflow_dispatch) has a group of its own, so it never replaces a waiting push run that Pages deploys from. A pull
+// request keeps one group per branch (per caller workflow) and cancels its superseded run. The values are compared whole, as parsed: any edit to them has
 // to change this test too.
 type Workflow = { on: { push?: { branches?: string[] } }; concurrency: { group: string; "cancel-in-progress": string } };
 const ci = Bun.YAML.parse(readFileSync(join(import.meta.dir, "..", ".github", "workflows", "ci.yml"), "utf8")) as Workflow;
@@ -13,7 +14,7 @@ const ci = Bun.YAML.parse(readFileSync(join(import.meta.dir, "..", ".github", "w
 it("groups pushes to main into one never-cancelled run and a pull request by its branch", () => {
   expect(ci.on.push?.branches).toContain("main");
   expect(ci.concurrency).toEqual({
-    group: "validation-${{ github.workflow }}-${{ github.ref }}",
+    group: "validation-${{ github.workflow }}-${{ github.ref }}${{ github.event_name == 'workflow_dispatch' && '-manual' || '' }}",
     "cancel-in-progress": "${{ github.event_name == 'pull_request' }}",
   });
 });
