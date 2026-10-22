@@ -8,6 +8,7 @@ import type { ServerMessage, SessionSnapshot } from "../shared/protocol.ts";
 import { CompletionTracker } from "./completion.ts";
 import { bridgeAgentNews, MachineManager } from "./machines.ts";
 import type { PushService } from "./push.ts";
+import { RemoteResponseTooLarge } from "./remote-json.ts";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => { while (cleanups.length) cleanups.pop()!(); });
@@ -25,6 +26,31 @@ function snapshot(agent_status = "working"): SessionSnapshot {
     protocol: 22, version: "fixture", workspaces: [], tabs: [], layouts: [], agents: [],
     panes: [{ pane_id: "fixture:p1", agent: "codex", agent_status, focused: false, revision: 1, tab_id: "fixture:t1", terminal_id: "fixture:terminal", workspace_id: "fixture" }],
   };
+}
+
+const OVER_SNAPSHOT_CAP = 96 * 1024 * 1024;
+/** `value` as JSON of `total` bytes, served lazily; `cancelled` settles when the reader gives up early. */
+function padded(value: unknown, total: number): { stream: ReadableStream<Uint8Array>; cancelled: Promise<void> } {
+  const json = JSON.stringify(value);
+  const space = new Uint8Array(64 * 1024).fill(0x20);
+  const cancelled = Promise.withResolvers<void>();
+  let left = total - json.length;
+  let opened = false;
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (!opened) { opened = true; controller.enqueue(new TextEncoder().encode(json.slice(0, 1))); return; }
+      if (left > 0) { const size = Math.min(left, space.length); left -= size; controller.enqueue(space.slice(0, size)); return; }
+      controller.enqueue(new TextEncoder().encode(json.slice(1)));
+      controller.close();
+    },
+    cancel() { cancelled.resolve(); },
+  });
+  return { stream, cancelled: cancelled.promise };
+}
+async function within(event: Promise<void>): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try { await Promise.race([event, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("the oversized snapshot was not cancelled")), 5000); })]); }
+  finally { clearTimeout(timer); }
 }
 
 /** Actual RPC/HTTP responses wait at the server, after capturing their older state. */
@@ -116,6 +142,7 @@ async function remoteFixture() {
   let httpStatus = 200;
   let sshCloses = 0;
   let terminalCloses = 0;
+  let answerNext: ((captured: SessionSnapshot) => Promise<Response>) | null = null;
   const bridge = Bun.serve({
     port: 0, hostname: "127.0.0.1",
     async fetch(request, server) {
@@ -125,7 +152,10 @@ async function remoteFixture() {
         return new Response(null, { status: 400 });
       }
       const status = httpStatus;
-      return Response.json({ snapshot: await remote.read() }, { status });
+      const captured = await remote.read();
+      const answer = answerNext;
+      answerNext = null;
+      return answer ? answer(captured) : Response.json({ snapshot: captured }, { status });
     },
     websocket: { open(ws) { observer = ws; }, message(_ws, data) { observing = JSON.parse(String(data)).mode === "observe"; } },
   });
@@ -141,6 +171,8 @@ async function remoteFixture() {
     ...local, remote, runtime, endpoint: runtime.endpoint,
     send: (message: ServerMessage) => observer!.send(JSON.stringify(message)),
     setHttpStatus: (status: number) => { httpStatus = status; },
+    /** the next /api/session answer, built from the snapshot the PC had when asked */
+    answerNext: (answer: (captured: SessionSnapshot) => Promise<Response>) => { answerNext = answer; },
     sshCloses: () => sshCloses,
     terminalCloses: () => terminalCloses,
   };
@@ -175,6 +207,58 @@ it("records a remote bridge failure and a later recovery without its address or 
 });
 
 describe("machine snapshot refresh races", () => {
+  it("preserves newest snapshot on oversized stale refresh", async () => {
+    const { manager, drive, rosters, remote, runtime, send, answerNext } = await remoteFixture();
+    const asked = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    let cancelled: Promise<void> | undefined;
+    answerNext(async (captured) => {
+      asked.resolve();
+      await release.promise;
+      const body = padded({ snapshot: captured }, OVER_SNAPSHOT_CAP);
+      cancelled = body.cancelled;
+      return new Response(body.stream);
+    });
+    const loading = drive.refresh(runtime);
+    await asked.promise;
+    remote.set(snapshot("blocked"));
+    const streamed = new Promise<void>((resolve) => {
+      const off = manager.subscribe((event) => {
+        if (event.type === "machine-message" && event.machine_id === "remote" && event.message.type === "pane-status") { queueMicrotask(off); resolve(); }
+      });
+    });
+    send({ type: "pane-status", pane_id: "fixture:p1", agent_status: "blocked" });
+    await streamed;
+    expect(runtime.machine.snapshot?.panes[0]?.agent_status).toBe("blocked");
+    rosters.length = 0;
+    release.resolve();
+    await loading;
+    await within(cancelled!);
+    expect(runtime.machine.snapshot?.panes[0]?.agent_status).toBe("blocked");
+    expect(runtime.machine.error).toBeNull();
+    expect(rosters).not.toContain("remote:working");
+    expect(remote.calls()).toBe(3);
+  });
+
+  it("fails an oversized current refresh without its address or token, then recovers", async () => {
+    const { drive, runtime, endpoint, answerNext } = await remoteFixture();
+    let cancelled: Promise<void> | undefined;
+    answerNext(async (captured) => {
+      const body = padded({ snapshot: { ...captured, panes: [{ ...captured.panes[0], agent_status: "done" }] } }, OVER_SNAPSHOT_CAP);
+      cancelled = body.cancelled;
+      return new Response(body.stream);
+    });
+    const failure = await drive.refresh(runtime).then(() => null, (error: unknown) => error);
+    expect(failure).toBeInstanceOf(RemoteResponseTooLarge);
+    expect(String(failure)).not.toContain(endpoint!.url);
+    expect(String(failure)).not.toContain("fixture-token");
+    await within(cancelled!);
+    expect(runtime.machine.snapshot?.panes[0]?.agent_status).toBe("working");
+    await drive.refresh(runtime);
+    expect(runtime.machine.snapshot?.panes[0]?.agent_status).toBe("working");
+    expect(runtime.machine.error).toBeNull();
+  });
+
   it("preserves a remote bridge's finish identity through HTTP snapshots and status events", async () => {
     const { manager, drive, remote, runtime, send } = await remoteFixture();
     const current = snapshot("done");

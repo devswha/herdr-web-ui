@@ -1,3 +1,4 @@
+import { apiFetch as fetch } from "./api-request-id.ts";
 import type { PreferencesChange, SharedPreferences } from "../../shared/preferences.ts";
 import type { SeenFinish } from "../../shared/seen.ts";
 import { resumeConnectionTraces } from "./connectionTrace.ts";
@@ -29,8 +30,6 @@ import type {
   PanePlan,
   PanePromptResponse,
   PaneReadResult,
-  PaneRewindRequest,
-  PaneRewindResponse,
   PaneResized,
   RepoDiffFileList,
   RepoDiffFilePatch,
@@ -214,6 +213,15 @@ export class ApiError extends Error {
  */
 export const routeMissing = (error: unknown): boolean => error instanceof ApiError && error.status === 404 && error.code === "not_found";
 
+/**
+ * The PC proxy's fixed words for another PC's answer it would not pass on (server/remote-json.ts),
+ * in the UI language: they are the detail every error surface shows beside its own sentence.
+ */
+const UNUSABLE_ANSWER: Readonly<Record<string, () => string>> = {
+  remote_response_too_large: () => t("The other PC's answer was larger than this app accepts"),
+  remote_response_invalid: () => t("The other PC's answer could not be read"),
+};
+
 async function errorFrom(url: string, response: Response): Promise<ApiError> {
   let detail = response.statusText;
   let code: string | null = null;
@@ -224,6 +232,7 @@ async function errorFrom(url: string, response: Response): Promise<ApiError> {
   } catch {
     /* non-JSON error body */
   }
+  if (code !== null && Object.hasOwn(UNUSABLE_ANSWER, code)) detail = UNUSABLE_ANSWER[code]!();
   return new ApiError(url, response.status, detail, code);
 }
 
@@ -770,6 +779,16 @@ export async function fetchPaneCommands(paneId: string, machineId = "local"): Pr
   return (await getJson<{ commands: SlashCommand[] }>(machinePath(machineId, `pane/commands?pane_id=${encodeURIComponent(paneId)}`))).commands;
 }
 
+/**
+ * GET /api/agent/commands?agent=&cwd=: the commands `agent` would offer in `cwd` before any pane runs it
+ * (the new workspace and tab dialogs list its skills), read from the bridge's tables and the folder; no
+ * process is started for it. A folder of null asks for the agent's own and the user's skills alone.
+ */
+export async function fetchAgentCommands(agent: string, cwd: string | null, machineId = "local"): Promise<SlashCommand[]> {
+  const query = new URLSearchParams({ agent, ...(cwd === null || cwd.trim() === "" ? {} : { cwd }) });
+  return (await getJson<{ commands: SlashCommand[] }>(`${machinePath(machineId, "agent/commands")}?${query.toString()}`)).commands;
+}
+
 /** GET /api/pane/omo-tasks: the background tasks and workflows the pane's OmO session started, and that PC's clock. */
 export async function fetchPaneOmoActivity(paneId: string, machineId = "local"): Promise<{ tasks: OmoActivity["tasks"]; runs: OmoActivity["runs"]; serverTime: string | null }> {
   const activity = await getJson<Partial<OmoActivity>>(machinePath(machineId, `pane/omo-tasks?pane_id=${encodeURIComponent(paneId)}`));
@@ -808,11 +827,6 @@ export async function fetchPanePromptState(paneId: string, machineId = "local"):
 /** POST /api/pane/prompt/answer: ApiError 409 `prompt_changed` when the menu moved on. */
 export async function answerPanePrompt(answer: PromptAnswer, machineId = "local"): Promise<void> {
   await sendJson(machinePath(machineId, "pane/prompt/answer"), "POST", answer);
-}
-
-/** POST /api/pane/rewind: Claude Code's confirm step comes up as a card (`interaction-required`); grok's and agy's own picker opens in the terminal (`terminal-required`). */
-export async function rewindPane(request: PaneRewindRequest, machineId = "local"): Promise<PaneRewindResponse> {
-  return await (await sendJson(machinePath(machineId, "pane/rewind"), "POST", request)).json() as PaneRewindResponse;
 }
 
 /** GET /api/push: the server's VAPID key, the `applicationServerKey` this device subscribes with. */

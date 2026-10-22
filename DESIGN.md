@@ -33,6 +33,14 @@ Messages say only what the person needs now, not everything the app knows:
 - Only waiting: one muted phrase, in one place ("Connecting…"); never the same state twice on screen.
 - Causes, internals and conditions stay folded away (a Details toggle) or appear only when they
   apply. A known cause is the sentence ("PC disk is full"); a generic fallback never pushes it aside.
+- Another PC's answer the server will not hold (past its size ceiling, or unreadable where a
+  watcher's prompt must be redacted, `server/remote-json.ts`) is said in one of two fixed sentences
+  in the user's language, never with any of the answer, its address or its size. They sit where
+  each surface already puts the server's words: a PC's state line, its setup dialog's error
+  (`machineErrorText`), and the Details of any request the PC proxy refused (`errorFrom` in
+  `lib/api.ts`, by the 502 code). Nothing new is drawn. None of the reference apps (the Codex and
+  Claude apps, Paseo, T3 Code) relays a second PC's bridge, so there is no app precedent to follow;
+  this applies the known-cause rule above.
 - One situation, one message, one place.
 - The resting screen is calm: a destructive control looks neutral until it asks to confirm;
   danger color is for the moment of risk. PC removal is the exception: its red tint and border
@@ -1182,6 +1190,62 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   dashed box (`.new-session-folder`: a worktree's checkout, else the folder of the pane in front)
   instead of asking for one, and its name is the tab's (optional; the placeholder is the number
   herdr gives it). Submit calls `POST /api/tab/create` with the same agent launch.
+- Under Name, the launch's own choices, each only where the agent's CLI documents it
+  (`lib/agentLaunchMode.ts` launchCapabilities; today Claude Code and Codex): **Model**, a `.input`
+  whose empty value is the agent's own and whose datalist offers the aliases the agent documents
+  (`sonnet`, `opus`, `haiku`), and **Effort**, a `.select` of the agent's documented levels after
+  **Agent default**, the two side by side (`.new-session-launch`, stacked where a column would fall
+  under 9rem). A model that is not one word, or a choice the picked agent's launch does not take,
+  disables Start and says so under its field in the blocked colour (`aria-invalid`, `role="alert"`);
+  picking another agent drops the choices its launch does not take. The agent picker's rows carry a
+  `.menu-item-hint` (**model, effort**) beside the agents whose launch takes them.
+- **First message** is a `.input` textarea (three rows, grown by hand) whose hint says where it goes.
+  Codex takes it as its own positional argument behind `--` (`codex [OPTIONS] [PROMPT]`; clap matches
+  a subcommand only before the separator, verified on codex 0.163.0: `codex -- logout` starts the TUI),
+  so it starts with the agent. Claude Code's parser runs a subcommand named by the first operand even
+  after `--` (`claude -- update` ran the updater on 2.1.304), so it and every other agent start bare
+  and the text rides on the create request as `first_message`: the bridge queues it as its own pending
+  message for the pane (`server/core/pending.ts` FIRST_MESSAGE_OWNER, one per pane), told to every
+  connection that attaches the pane as a **Next turn** pending message with Discard and Send now, and
+  typed once when the agent is first ready only through the page that sent the request
+  (`first_message_connection`, its socket's id from the first snapshot) while it has the pane attached,
+  with the queued path's own checks (a draft in Claude's box holds it with `input_draft`; another
+  agent, or another process or session of the same kind than the one launched for it, holds it with
+  `pending_target_changed`). When that page disconnects, reloads or leaves the pane first, it is held with a note and
+  waits for someone's Send now or Discard, as any draft does after a disconnect. The page never types
+  it itself. When the PC answers that it could not queue the message (`first_message.error`) or
+  answers without `first_message` (a bridge before it), the text goes into the new tab's message box
+  and the dialog stays open saying so, with **Open**. A Codex message with a tab or a line break is no
+  one-line argument: it goes as `first_message` instead. The bridge checks the model, the effort and
+  Codex's argument by the dialog's own rules (`shared/launch-rules.ts`); switching agents clears the model.
+  Under the message, **Skills**: the agent's skills in the folder before any process exists
+  (`GET /api/agent/commands?agent=&cwd=`, the pane commands route without a pane: the bridge's
+  tables and a disk scan, no agent started; a device that may only watch is refused it as it is a
+  directory listing and a file read), as mono `.btn` chips with `--radius-pill` that wrap to
+  three rows and then scroll, each the token the agent types (`$review-pr` for Codex, `/review-pr`
+  elsewhere, `@name` where that is the trigger) with the skill's description as its tooltip; a tap
+  puts the token at the message's caret, spaced, and focuses the box. An empty list says **No skills
+  for Codex in this folder.**; a folder not there yet, or a PC whose bridge is from before the
+  route, is said in one hint line. Start sends exactly one create: a ref-held in-flight guard
+  (`lib/sessionHistory.ts` inFlightGuard) refuses a second press before the disabled fields have
+  rendered.
+- In a mouse-driven window the chat's composer can show a **New tab with an agent…** icon button
+  (lucide `MessageSquarePlus`, beside Attach) that opens this dialog as New tab on the pane's
+  workspace, as the tab menu does. It is off until this device turns it on (Settings → Chat →
+  Composer, **New tab button**, the device setting `composerNewTabButton`): the composer's row stays
+  minimal, as the Codex and Claude apps keep theirs (attach and the mic; a new thread starts from the
+  sidebar), and the tab menu opens the same dialog either way. A phone's card has no row to spare for
+  it beside the mic and the tasks chip (the model label would lose its pill), so there the tab's own
+  menu keeps **New tab with agent…** and Settings does not offer the toggle on a touch screen.
+  The existing shortcuts are untouched.
+- The design follows the Codex app's new thread screen (the model and reasoning-effort pickers
+  under the prompt box, the prompt sent as the thread starts) and Claude Code's own session flags
+  (`--model`, `--effort`, the positional prompt): here they are fields of the existing dialog, not a
+  second launcher, because the dialog already owns the agent, the folder and the launch; the skills
+  row is the composer's `/` and `$` menu brought forward to before the agent runs, as chips because
+  a dialog has no caret to complete at until the message is typed.
+- The browser demo answers `GET /api/agent/commands` with a few fictional skills per agent (`$` ones
+  for Codex) and records nothing: a tab started from it is the demo's own new pane.
 
 ### Tab strip and pane canvas
 - The tab strip is shown even for one pane, as herdr's TUI shows its single tab and `+`. The `+`
@@ -1276,14 +1340,16 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
 ### Session history (`.session-modal`)
 - From a workspace row's menu, **Earlier sessions…** (lucide `History`, beside Rename workspace),
   and from the chat: picking `/resume` in the `/` menu's Terminal commands opens it at once, and the
-  terminal command's row over the composer offers **Earlier sessions…** beside Open Terminal. The
-  dialog is the worktree dialog's anatomy: **Agent** is a `.select` of the PC's installed agents
-  (the row's or the pane's agent first), under it the folder the sessions were started in, in
-  mono, then one `.session-row` per session as `GET /api/sessions/history` lists them, newest
-  first: the title (else the first prompt; else the id in mono) in `--fs-sm` medium, the first
-  prompt under it in `--text-dim`, each clamped to two lines, and at the trailing end the time it
-  was last touched (the chat turn's timestamp format; on hover the full date of its start, where the
-  store records one, and of its last touch) over the way on. The
+  same command typed and sent opens the list without sending anything. The
+  dialog is the worktree dialog's anatomy: **Agent** is the New workspace dialog's picker
+  (`AgentPicker`: each agent with its mark, its chevron inset like the app's other controls, no
+  Shell entry; Escape on its open list closes the list, the next one the dialog) of the PC's
+  installed agents (the row's or the pane's agent first), under it the folder the sessions were
+  started in, in mono, then one `.session-row` per session as `GET /api/sessions/history` lists
+  them, newest first: the title (else the first prompt; else the id in mono) in `--fs-sm` medium,
+  the first prompt under it in `--text-dim`, each clamped to two lines, and at the trailing end
+  the time it was last touched (the chat turn's timestamp format; on hover the full date of its
+  start, where the store records one, and of its last touch) over the way on. The
   way on is a quiet `.btn` **Resume**, never the primary style: a list of up to fifty rows carries
   no fifty accents. A session a pane of the workspace already shows (its `agent_session`, by id or
   by file name) gets an **Already open** pill (over the button on a phone, beside it elsewhere) and
@@ -1452,13 +1518,18 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   transcript's edge cannot be tapped). With a mouse the copy and format buttons keep their `--chip-h`
   look and take a `--pointer-target` hit area through an invisible `::before` expander.
 - A user turn of Claude Code, grok or agy carries one more glyph button beside its copy, the same
-  `.chat-copy` look (`.chat-rewind`, lucide Undo2): **Rewind to here** for Claude Code, offered only
-  while the agent waits with no card up and the message box empty, and disabled while a rewind is
-  on its way; **Rewind in terminal** for grok and agy, which sends nothing and opens the pane's
-  terminal with a one-line `.chat-rewind-note` (`role="status"`) under the bubble. A refused rewind
-  says why in the turn's `.chat-copy-error` line. The hover placement follows the message actions
-  of the Claude and Codex apps.
-- A command sent from the chat says what became of it under its bubble (`.chat-outcome`,
+  `.chat-copy` look (`.chat-rewind`, lucide Undo2): **Rewind in terminal** sends nothing and
+  opens the pane's terminal with a dismissible, one-line `.terminal-banner-rewind` hint to run
+  the agent's own `/rewind`. Drafts stay intact. Chat follows the native transcript's active
+  branch once the agent records it; it never guesses a restore from a dialog's wording. The
+  hover placement follows the message actions of the Claude and Codex apps; the terminal handoff
+  deliberately differs from their native rewind controls because this bridge does not own them.
+- A terminal-only command sent from Chat is one quiet right-aligned row, not a bubble:
+  `SquareTerminal`, the command in mono `--fs-sm`, **Ran in terminal** in `--text-dim`,
+  and one **Open Terminal** text button. It has no outcome chip or unconfirmed output preview.
+  The same row replaces a matching native user turn, so the command never appears twice.
+  Recognized informational result cards, including Hermes, keep their existing presentation.
+- An ordinary command sent from the chat says what became of it under its bubble (`.chat-outcome`,
   `lib/outcomeChip.ts`): one quiet `--fs-xs` line in `--text-dim` on the message's side, a 14px
   glyph and the state in words, read as a `role="status"` live region. It follows the delivery
   receipt messaging apps put under a sent bubble (iMessage's Delivered / Read; Claude's remote
@@ -1867,7 +1938,14 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   the card, as t3code's composer banner stack orders them (`src/lib/composerNotices.ts`). A
   dismissal lasts while the notice stands and says the same thing; it is forgotten once the
   notice goes or changes its words, so the next one shows again, and another pane's dismissals
-  never carry over. With no input card (view
+  never carry over. A row's ways on sit at its end while the column holds them all beside the
+  sentence; a narrower column (a phone, a narrow split) puts them on a line of their own under it,
+  trailing-aligned, wrapping again when even that line is too short, and the X keeps the row's
+  top trailing corner beside the first line, `--control-h` square (`--touch-target` under a
+  coarse pointer) on space the row keeps clear for it, so nothing is ever cut at the column's
+  edge. That is Primer's Banner anatomy (dismiss in the top right corner, actions under the
+  content on a narrow viewport), with the actions trailing rather than leading so the last of
+  them, the one that sends, stays over Send. With no input card (view
   only, ended, a secret prompt) the pills stay where the terminal lens draws them, and a notice
   keeps a phone's card docked: it never floats over the transcript.
 - Held messages (`.composer-queue`) are quiet rows on the input card's column, above it: the
@@ -1902,22 +1980,22 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   typed query too (`.composer-menu-badge`: the `.badge` primitive in the quiet register, `--text-dim`
   on `--bg-elevated`, never shrunk; the description beside it gives way). A row the agent's own
   menu hides (`agent-hidden`) is never listed, and typed by hand it is sent like any text. The
-  chat never sends a terminal command on its own: picking one keeps the draft and a row in the
-  notices' anatomy (`ComposerNotices`, its group labelled **Terminal command**) stands over the
-  card, lucide `SquareTerminal`, then `/config runs in the terminal; the chat cannot show what it
-  does.` with the command in mono, and two ways on in the held rows' buttons: **Open Terminal**
-  (the pane's terminal lens, nothing sent) and **Run in Terminal** (the usual send, then the
-  terminal lens once the send is acknowledged; a refusal keeps the text and its note here), then
-  the row's X. For `/resume` the row leads with **Earlier sessions…** (Session history), and
-  picking it from the menu opens that list at once. Typing such a command by hand and pressing Send shows the same row instead of
-  sending; Escape or the X puts it away with the text kept, and Send brings it back. A
-  connection that only observes has no composer at all (PaneTerminal mounts none for it, see
-  Role), so it sees neither the group nor the row; the composer still takes the connection's
-  `role`, and `terminalCommandActions` never offers Run in Terminal to one that observes. Both
-  buttons are in the Tab order, the row is a `role="status"` row, and a phone's card stays docked
-  while it shows, as with any notice. The split follows VS Code's Copilot Chat, whose shell code blocks carry **Insert into
-  Terminal** (and, later, **Run in Terminal**) rather than running the command from the chat
-  (microsoft/vscode #196990, #227707); here the draft stays exactly as the user wrote it.
+  menu inserts a terminal command like any other completion; Send/Enter submits it through the
+  ordinary input path. There is no extra composer notice or confirmation button.
+  Only an accepted direct send or explicit **Send now** opens this browser's Terminal lens.
+  Queue acceptance and automatic delivery do not switch lenses; refused or unconfirmed sends
+  keep the draft and existing note. `/resume` opens **Earlier sessions…** instead.
+  A dismissible **/command ran · Back to Chat · X** hint uses the existing terminal banner
+  column and rewind hint anatomy: neutral elevated surface, hairline, `--radius-md`,
+  `--fs-xs`, `--space-2` gaps and existing button targets. It overlays the grid rather than
+  consuming a row or resizing the pty. Long command names truncate; controls wrap as needed.
+  It lasts until dismissed or the lens is left, with no timer; another command replaces it.
+  Back to Chat restores the reader's saved position. Both actions are keyboard accessible,
+  with the existing focus ring and coarse-pointer targets. No new motion or tokens are needed.
+  View-only devices have no composer and never auto-switch. Nothing calls `pane.focus`.
+  This follows [Warp's real-terminal agent workflow](https://docs.warp.dev/agents/), where
+  interactive programs run on the terminal surface beside the conversation, adapted to Ovis's
+  existing two lenses and the supplied terminal-autoswitch mockup. No code or pixels are copied.
 - A pane whose rows carry `trigger: "@"` (OpenCode v2 skills, which it takes as `@skill-id`
   attachments) lists them in the `@` menu under a **Skills** heading before the **Files** group
   (the listbox is then **Skills and files**), a bare `@` opens that menu, and picking one inserts
@@ -2031,9 +2109,9 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   replaces the one entry. A reload steps out of the entries it finds; Forward reopens the page.
 - Pages, in order: **Appearance** (theme, dark theme, light theme, density, language, sidebar rows), **Chat**
   (panes open in, show thinking, chat width, chat font size and family; then
-  **Composer**: Enter sends, send queued messages automatically, and on a touch screen the suggestion
-  chip (off by default); then **Quick replies**; then **File viewer**: wrap long
-  lines, Markdown width, Diff layout), **Terminal** (font size, font family, wheel
+  **Composer**: Enter sends, send queued messages automatically, in a mouse-driven window the New tab
+  button (off by default), and on a touch screen the suggestion chip (off by default); then
+  **Quick replies**; then **File viewer**: wrap long lines, Markdown width, Diff layout), **Terminal** (font size, font family, wheel
   speed, input mode, Key bar, Clipboard from a pane, Use alongside herdr's own window, Follow
   herdr's focus), **Alerts**, **Voice input**, **Subscription usage**,
   **Shortcuts** (the platform-resolved global bindings), **Phone & devices** (the phone address,
@@ -2147,6 +2225,13 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   `pane.scroll`, which moves the shared viewport for every client, including the TUI. Requests
   retain their owning PC/pane, and a failed request displays an error instead of inventing a
   local history position.
+- A mirrored or observed grid may be wider than its mount. Its input caret and IME preedit stay
+  inside the visible mount, at the terminal cursor when visible and at the nearest visible edge
+  otherwise: inserting text must not move a manually panned view. This differs from Zed's
+  locally sized terminal because this browser must preserve the remote owner's grid rather than
+  resize it to reveal the caret. No terminal pixels or input handling code are copied from Zed.
+  Local wheel panning in an oversized mirror survives subsequent output. A tap or a touch movement
+  that produces no history step sends no shared scroll request.
 - While herdr's viewport is above the bottom and the pane is interactive, a round ArrowDown
   "Jump to bottom" button floats over the grid's bottom-right corner and sends `pane.scroll`
   offset 0, the one-tap way back to the live bottom now that no scrollbar offers End. It uses

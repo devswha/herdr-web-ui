@@ -34,7 +34,7 @@ import { type Client, send } from "./connections.ts";
 /** a focus or reconnect re-reads the panes for the daily active message at most this often */
 const VISIT_READ_MS = 10 * 60_000;
 
-export function createStatusHub<Lease>({ options, devices, clients, present, pending, drainPending, holdPendingPane, usage, usageLogin }: {
+export function createStatusHub<Owner, Lease>({ options, devices, clients, present, pending, drainPending, holdPendingPane, usage, usageLogin }: {
   options: {
     stateDir?: string;
     codexHome?: string;
@@ -50,7 +50,8 @@ export function createStatusHub<Lease>({ options, devices, clients, present, pen
   devices: DeviceStore;
   clients: Set<Client>;
   present: Set<Client>;
-  pending: PendingInputs<Client, Lease>;
+  /** the pending messages' status and lifetime calls, whoever owns them (a connection, or the bridge for a first message) */
+  pending: PendingInputs<Owner, Lease>;
   drainPending: (paneId: string) => void;
   holdPendingPane: (paneId: string, fault: { code: string; message: string }) => void;
   usage: UsageService;
