@@ -2005,7 +2005,8 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   hint's anatomy (neutral elevated surface, hairline, `--radius-md`, `--fs-xs`, `--space-2`
   gaps, existing button targets): **/command ran** (truncated, whole in its title), under it
   **Chat may come back when you close it** when the return is armed (a possibility, never a
-  promise: Claude may record no close), then **Back to Chat** and **Keep Terminal**, which move
+  promise: Claude may record no close, and a screen may close onto text), then **Back to Chat** and
+  **Keep Terminal**, which move
   under the words when the pane is narrow. It has no focus trap, no Escape of its own and no dialog
   role: Escape, Tab and the arrows are the agent's. The inert composer is no dictation target, so
   Mod+Shift+Space and the Escape that cancels a recording stay the terminal's. A find bar left open
@@ -2034,14 +2035,43 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   composition in the grid or its input line leave the return to the reader. There is no timer and
   no key is sent: a record that never comes (Claude's fullscreen renderer writes none for most
   panels, nor does a session before its first message) leaves the peek until the reader ends it.
-  Every other agent returns by hand.
+- The other agents whose screens were recorded come back from the screen itself
+  (`lib/inputRow.ts`, `SCREEN_AUTO_RETURN` in `lib/terminalPeek.ts`): herdr reports their pickers
+  and panels as idle and nothing reaches a transcript, but each draws its own empty input row
+  again when the screen closes. One recognizer per agent reads the grid's bottom rows (and the
+  cell attributes a placeholder needs: Codex's dim, Hermes' italic, gjc's and Devin's colour) off
+  whole frames only: never inside one of herdr's synchronized-update blocks, nor between a resize
+  and the agent's redraw for it. The return arms on the first frame whose row an open screen hid
+  (or covered, for omp, agy and Grok, whose panels can leave it drawn under them; Hermes, which
+  draws its row again for a moment before every screen, arms on a covered row only), and ends the
+  peek on the first frame that shows the row back, empty, by Back to Chat's own path. A screen
+  that closes onto text in the row (Hermes' /palette, Grok's /model) leaves it to the reader, as do
+  the blockers above. It arms only for a bare command whose recording hid and redrew the row
+  (Codex's `/cd` into a folder too), and only when the row was read empty as the text left, so a
+  screen the recognizer does not know never arms. Codex's `/side` and `/btw` (their side thread
+  draws a composer of its own), print forms, toggles, `$EDITOR` handoffs, OpenCode (only its home
+  screen was recorded) and every unrecorded command return by hand.
+- A peek ended by hand while its command's screen is still open in the terminal (Claude's /btw
+  answer, a picker left up) would let the next message be typed into that screen, where it does
+  nothing. Where the pane's recognizer read the empty row as the peek began and does not see it
+  now, the composer shows **/command is still open in the terminal** (`SquareTerminal`, an urgent
+  row of `.composer-notices`) with **Show terminal**, which opens a peek the reader ends by hand.
+  Send then keeps the message and says **Not sent: /command is still open in the terminal.** with
+  **Send anyway**, which sends it once, as an ordinary send (never over a box the server showed);
+  the next Send is held again. The notice goes on the first whole frame that shows the row back,
+  with another pane, agent, terminal or session, or when dismissed. No key is sent to close
+  anything. Claude Code has a recognizer for this (its box between the screen's last two rules,
+  as `server/prompt.ts` reads it) while its own return stays on its record. It follows the
+  composer's refusal of a Claude box that may not be empty and t3code's composer banner stack;
+  Warp and Zed give an interactive program the input until it exits, which this bridge only sees
+  on the screen.
 - The peek follows Warp's full-screen handoff of an interactive program
   ([Warp's agent workflow](https://docs.warp.dev/agents/)), where the program takes over the
   conversation's area and the conversation is back as it was when the program exits, and Zed's
   terminal panel, which comes up over the workspace without disturbing the buffer under it. Unlike
-  both it keeps the composer under the grid, inert, and comes back only on the agent's own record,
-  because the pty is the agent's own and this bridge cannot see a panel close. No code or pixels
-  are copied.
+  both it keeps the composer under the grid, inert, and comes back only on the agent's own record
+  or its own input row drawn again, because the pty is the agent's own and this bridge cannot see
+  a program exit. No code or pixels are copied.
 - A pane whose rows carry `trigger: "@"` (OpenCode v2 skills, which it takes as `@skill-id`
   attachments) lists them in the `@` menu under a **Skills** heading before the **Files** group
   (the listbox is then **Skills and files**), a bare `@` opens that menu, and picking one inserts

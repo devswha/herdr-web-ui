@@ -15,6 +15,10 @@ import panes from "../site/demo/fixtures/panes.json";
 // its still-mounted chat, the lens and the address still Chat. The demo's Claude pane records
 // "Config dialog dismissed" when Escape closes /config's panel (site/demo/transport.ts), so /config
 // comes back by itself; /doctor records nothing and stays until the reader leaves it.
+// The other agents come back from their screens (src/lib/inputRow.ts): the demo's omp pane draws its
+// editor's empty row, and /settings a panel in its place until Escape (site/demo/agentScreens.ts),
+// so /settings comes back by itself; /copy is not on omp's list and stays. Claude's /btw answer,
+// left open when its peek is ended by hand, holds the next message behind the still-open notice.
 const app = mkdtempSync(join(tmpdir(), "terminal-autoswitch-"));
 const evidence = join(process.env.UI_EVIDENCE_DIR ?? "/tmp/terminal-autoswitch-shots", "edges");
 mkdirSync(evidence, { recursive: true });
@@ -528,6 +532,136 @@ try {
       assert.deepEqual(errors, []);
       await capture(page, `${tag}-watch-only`);
       console.log(`PASS ${tag}: watch-only stays in Chat without a composer; no focus or takeover frames`);
+    } finally { await context.close(); }
+  }
+
+  // Screens: omp comes back by itself after /settings and stays after /copy; Claude's /btw answer left
+  // open by a peek ended by hand holds the next message until it closes, or Send anyway sends it once
+  for (const width of [1280, 390]) {
+    const touch = width === 390;
+    const context = await browser.newContext({ viewport: { width, height: 844 }, isMobile: touch, hasTouch: touch, locale: "en-US" });
+    try {
+      await context.addInitScript((views) => {
+        localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", theme: "light", darkTheme: "amber", lightTheme: "amber", autoSendQueued: true }));
+        for (const pane of views) localStorage.setItem(`herdr-web-ui:view:${pane}`, "chat");
+      }, [owner, panes.omp]);
+      const page = await context.newPage();
+      const errors: string[] = [];
+      page.on("pageerror", (error) => { errors.push(error.message); console.error(error.message); });
+      page.setDefaultTimeout(10_000);
+      const tag = `screens-${width}`;
+      const STILL_OPEN = "/btw is still open in the terminal";
+      const of = (pane: string) => ({
+        stack: page.locator(`.terminal-stack[data-pane-owner="${pane}"]`),
+        chat: page.locator(`.terminal-stack.is-chat:not(.is-peek)[data-pane-owner="${pane}"]`),
+        peek: page.locator(`.terminal-stack.is-chat.is-peek[data-pane-owner="${pane}"]`),
+        box: page.locator(`.terminal-stack.is-chat[data-pane-owner="${pane}"] .composer-text`),
+      });
+      const open = async (pane: string, probe: string) => {
+        await page.goto(`${server.url}?pane=${encodeURIComponent(pane)}`);
+        await of(pane).chat.locator(".composer").waitFor();
+        // the catalog has loaded: its terminal command is in the menu
+        await of(pane).box.fill(probe);
+        await page.locator(".menu-item[data-terminal]").first().waitFor();
+        await of(pane).box.fill("");
+      };
+      const submits = async (pane: string, text: string) => (await frames(page)).filter((frame) => frame.type === "submit" && frame.pane_id === pane && frame.text === text).length;
+      const sendIn = async (pane: string, text: string) => {
+        await of(pane).box.fill(text);
+        await page.getByRole("button", { name: "Send message", exact: true }).click();
+      };
+      const escapeIn = async (pane: string) => {
+        const before = (await frames(page)).filter((frame) => frame.type === "input" && frame.pane_id === pane && frame.text === "\x1b").length;
+        if (touch) {
+          await page.waitForFunction((pane) => document.querySelector<HTMLButtonElement>(`.terminal-stack[data-pane-owner="${pane}"] .key-bar .key[data-key="Escape"]`)?.disabled === false, pane);
+          await of(pane).stack.locator('.key-bar .key[data-key="Escape"]').click();
+        } else await page.keyboard.press("Escape");
+        await page.waitForFunction(([pane, before]) => (window as unknown as PeekWindow).sentFrames
+          .filter((frame) => frame.type === "input" && frame.pane_id === pane && frame.text === "\x1b").length > before, [pane, before] as const);
+      };
+      const backToChat = async (pane: string) => {
+        await hint(page).getByRole("button", { name: "Back to Chat", exact: true }).click();
+        await of(pane).peek.waitFor({ state: "detached" });
+        await of(pane).chat.locator(".composer").waitFor();
+      };
+      const screen = (pane: string, text: string) => of(pane).stack.locator(".xterm-rows", { hasText: text });
+
+      // omp's /settings: the panel hides the editor's row, Escape draws it back, and the chat comes back by itself
+      await open(panes.omp, "/sett");
+      await sendIn(panes.omp, "/settings");
+      await of(panes.omp).peek.waitFor();
+      await hint(page).getByText("/settings ran", { exact: true }).waitFor();
+      await hint(page).getByText(AUTO_NOTE, { exact: true }).waitFor();
+      await screen(panes.omp, "to close").waitFor();
+      await capture(page, `${tag}-omp-settings`);
+      await escapeIn(panes.omp);
+      await of(panes.omp).peek.waitFor({ state: "detached" });
+      await of(panes.omp).chat.locator(".composer").waitFor();
+      assert.equal(await page.locator(".composer-notice", { hasText: "is still open in the terminal" }).count(), 0, "a screen that closed leaves no still-open notice");
+      assert.equal(await page.evaluate((pane) => localStorage.getItem(`herdr-web-ui:view:${pane}`), panes.omp), "chat");
+      console.log(`PASS ${tag}: omp's /settings comes back to Chat by itself once its editor's row is drawn again`);
+
+      // omp's /copy prints over the row and is not on omp's list: the row's frames bring nothing back
+      await sendIn(panes.omp, "/copy");
+      await of(panes.omp).peek.waitFor();
+      await hint(page).getByText("/copy ran", { exact: true }).waitFor();
+      assert.equal(await hint(page).getByText(AUTO_NOTE, { exact: true }).count(), 0, "/copy comes back by hand");
+      await screen(panes.omp, "Nothing to copy yet.").waitFor();
+      await escapeIn(panes.omp);
+      // the frame Escape drew (the printed line gone, the row still there) has been parsed: the peek stays
+      await screen(panes.omp, "Nothing to copy yet.").waitFor({ state: "detached" });
+      assert.equal(await of(panes.omp).peek.count(), 1, "a command off the list keeps its peek after the row is back");
+      await backToChat(panes.omp);
+      assert.equal(await page.locator(".composer-notice", { hasText: "is still open in the terminal" }).count(), 0, "the row is back: no still-open notice");
+      console.log(`PASS ${tag}: omp's /copy, off the list, stays until the reader leaves it`);
+
+      // Claude's /btw answer left open: the peek ended by hand, the next message would be typed into it
+      await open(owner, "/conf");
+      await sendIn(owner, "/btw what changed?");
+      await of(owner).peek.waitFor();
+      await hint(page).getByText("/btw ran", { exact: true }).waitFor();
+      assert.equal(await hint(page).getByText(AUTO_NOTE, { exact: true }).count(), 0);
+      await screen(owner, "Escape to dismiss").waitFor();
+      await backToChat(owner);
+      const notice = of(owner).chat.locator(".composer-notice", { hasText: STILL_OPEN });
+      await notice.waitFor();
+      await notice.getByRole("button", { name: "Show terminal", exact: true }).waitFor();
+      await capture(page, `${tag}-still-open`);
+      // Send keeps the message and says why; nothing is typed
+      const held = "Did the retry test pass?";
+      await sendIn(owner, held);
+      await of(owner).chat.locator(".composer-note", { hasText: "Not sent: /btw is still open in the terminal." }).waitFor();
+      assert.equal(await of(owner).box.inputValue(), held, "the message stays in the box");
+      assert.equal(await submits(owner, held), 0, "nothing is sent while the screen is open");
+      await capture(page, `${tag}-still-open-held`);
+      // Send anyway sends it once, as an ordinary send
+      await of(owner).chat.getByRole("button", { name: "Send anyway", exact: true }).click();
+      await page.waitForFunction(([pane, text]) => (window as unknown as PeekWindow).sentFrames.some((frame) => frame.type === "submit" && frame.pane_id === pane && frame.text === text), [owner, held] as const);
+      await page.waitForFunction((pane) => document.querySelector<HTMLTextAreaElement>(`.terminal-stack[data-pane-owner="${pane}"] .composer-text`)?.value === "", owner);
+      assert.equal(await submits(owner, held), 1, "Send anyway sends once");
+      assert.equal((await frames(page)).filter((frame) => frame.type === "submit" && frame.pane_id === owner && (frame as { send_anyway?: unknown }).send_anyway === true).length, 0,
+        "Send anyway past the notice is no send over a box the server showed");
+      await finish(page);
+      await of(owner).chat.locator(".composer-status[data-status='done'], .composer-status[data-status='idle']").waitFor();
+      // the screen is still open: the notice stays, and Show terminal opens a peek the reader ends
+      await notice.waitFor();
+      await notice.getByRole("button", { name: "Show terminal", exact: true }).click();
+      await of(owner).peek.waitFor();
+      await hint(page).getByText("/btw ran", { exact: true }).waitFor();
+      assert.equal(await hint(page).getByText(AUTO_NOTE, { exact: true }).count(), 0, "Show terminal opens a peek that only ends by hand");
+      await backToChat(owner);
+      await notice.waitFor();
+      // the answer closed in the terminal: the first frame with Claude's empty box clears the notice
+      await page.evaluate((pane) => (window as unknown as { demoSocket: WebSocket }).demoSocket.send(JSON.stringify({ type: "input", pane_id: pane, text: "\x1b" })), owner);
+      await notice.waitFor({ state: "detached" });
+      const after = "And the flaky one?";
+      await sendIn(owner, after);
+      await page.waitForFunction(([pane, text]) => (window as unknown as PeekWindow).sentFrames.some((frame) => frame.type === "submit" && frame.pane_id === pane && frame.text === text), [owner, after] as const);
+      await finish(page);
+      assert.deepEqual(await page.evaluate("window.sentFrames.filter(frame => frame.type === 'focus' || frame.type === 'take-over')"), []);
+      assert.deepEqual(await page.evaluate("window.focusCalls"), [], "no peek or notice moves herdr's focus");
+      assert.deepEqual(errors, []);
+      console.log(`PASS ${tag}: Claude's /btw left open holds Send behind the notice; Send anyway sends once; its close clears the notice`);
     } finally { await context.close(); }
   }
 

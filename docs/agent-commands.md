@@ -111,7 +111,44 @@ custom or unknown command is unrecorded: those come back by hand. Under Claude's
 renderer most panels write nothing at close, and a session writes nothing before its first
 message, so the peek never waits for the answer, and its head says the chat may come back, never
 that it will. Held terminal input, the terminal's find bar or an IME composition in the grid or
-its input line leave the return to the reader. Every other agent's peek ends by hand.
+its input line leave the return to the reader.
+
+The other agents write nothing when a picker or panel closes, and herdr reports those screens as
+idle, so their chat comes back from the screen instead
+([`src/lib/inputRow.ts`](../src/lib/inputRow.ts)): each draws its own empty input row again when
+the screen closes. One recognizer per agent reads the terminal's bottom rows off whole frames
+(never inside one of herdr's synchronized-update blocks, nor between a resize and the agent's
+redraw). The peek arms once the row has gone, or been covered by a panel drawn over it, after the
+send, and ends on the first frame that shows it back, empty. It arms only when the row was read
+empty as the command left, and only for the commands each agent was recorded hiding and redrawing
+it for, sent bare:
+
+| Agent (version recorded) | Comes back by itself after | Arms on |
+|---|---|---|
+| Codex (0.163.0) | `/permissions`, `/theme`, `/statusline`, `/resume`, `/review`, `/rename`, `/new`, `/fork`, `/usage`, `/diff` (closed with `q`), `/cd <folder>` it does not trust yet | row gone |
+| omp (18.8.7) | `/settings`, `/hotkeys`, `/tree`, `/resume`, `/extensions`, `/agents`, `/usage`, `/context`, `/btw`, `/switch` | row gone or covered |
+| pi (0.86.0) | `/settings`, `/tree`, `/resume`, `/scoped-models` | row gone |
+| gjc (0.18.12) | `/settings`, `/theme`, `/tree`, `/resume`, `/sessions`, `/transcript`, `/routing`, `/model` | row gone |
+| OmO (5.1.40) | `/settings`, `/tree`, `/thinking`, `/scoped-models`, `/favorite-models`, `/sessions`, `/resume`, `/rename`, `/share`, `/trust` | row gone |
+| Hermes classic CLI (0.21.5) | `/model`, `/reload-mcp`, `/new`, `/reset`, `/clear` | row covered only: it draws the empty row for a moment before every screen |
+| Devin (3000.11.92) | `/model`, `/models`, `/config`, `/resume`, `/theme`, `/shortcuts`, `/mode`, `/btw` | row gone |
+| agy (1.4.4) | `/model`, `/resume`, `/config`, `/permissions`, `/mcp`, `/skills`, `/usage`, `/context`, `/help`, `/tasks`, `/rewind`, `/artifact`, `/codesearch`, `/diff`, `/changelog` | row gone or covered |
+| Grok (1.0.67) | `/settings`, `/sessions`, `/resume`, `/plugins`, `/skills`, `/hooks`, `/help`, `/usage`, `/context`, `/history` | row gone or covered |
+
+A command that prints and keeps the row (Codex `/status`, omp `/plan`, pi `/hotkeys`, Devin
+`/mcp`…) never arms; one that hands the screen to `$EDITOR` (Hermes `/prompt`, agy `/open`) or
+closes onto text in the row (Hermes `/palette`, Grok `/model`, Codex `/mention`) is left to the
+reader. Codex's `/side` and `/btw` come back by hand: their side thread draws a composer of its
+own. So does OpenCode, whose in-session layout was not recorded, and every unrecorded command
+or agent.
+
+A peek ended by hand while its command's screen is still open (Claude Code's `/btw` answer, a
+picker left up) leaves the next message to be typed into that screen, where it does nothing.
+Where the agent has a recognizer (Claude Code's reads its input box between the screen's last
+two rules) and it read the empty row as the peek began, the composer then says **/command is
+still open in the terminal**, with **Show terminal**. Send keeps the message and says it was not
+sent, with **Send anyway** to send it once. The notice goes as soon as a frame shows the row back,
+or with another pane, agent or session. Nothing is typed to close the screen.
 
 Rows marked `agent-hidden` mirror the agent's own menu, which hides them (Claude Code's
 `/heapdump`, for instance). They are left out of the menu too, but typing one sends it like any

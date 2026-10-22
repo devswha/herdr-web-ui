@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { CommandOutcome, ConversationTurn } from "../../shared/protocol.ts";
-import { CLAUDE_AUTO_RETURN, autoReturnArmed, commandScreenClosed, paneLensFlags, peekFor, returnBlocked, sentOutcome, type TerminalPeek } from "./terminalPeek.ts";
+import { CLAUDE_AUTO_RETURN, SCREEN_AUTO_RETURN, autoReturnArmed, commandScreenClosed, paneLensFlags, peekFor, returnBlocked, screenReturnArmed, sentOutcome, watchReturn, type TerminalPeek } from "./terminalPeek.ts";
 
-const peek: TerminalPeek = { slot: "a", machineId: "local", paneId: "w1:p1", command: "/usage", text: "/usage", knownOutcomeIds: ["o1"], auto: true };
+const peek: TerminalPeek = { slot: "a", machineId: "local", paneId: "w1:p1", command: "/usage", text: "/usage", knownOutcomeIds: ["o1"], auto: true, watch: null, inputRowSeen: true };
 const outcome = (id: string, text: string, created: string): CommandOutcome => ({
   id, pane_id: "w1:p1", text, state: "terminal-required", evidence: [], created_at: created, updated_at: created,
 });
@@ -63,6 +63,76 @@ describe("autoReturnArmed", () => {
     expect(autoReturnArmed("claude", "/fast", "fast")).toBe(true);
     expect(autoReturnArmed("claude", "/fast on", "fast")).toBe(false);
     expect(autoReturnArmed("claude", "/resume 4f2a", "resume")).toBe(false);
+  });
+});
+
+describe("screenReturnArmed", () => {
+  // the commands each agent's recording showed hiding the row and drawing it back at its close (SYNTHESIS, 2026-10-22)
+  const RECORDED: Record<string, string[]> = {
+    codex: ["permissions", "theme", "statusline", "resume", "review", "rename", "new", "fork", "usage", "diff"],
+    omp: ["settings", "hotkeys", "tree", "resume", "extensions", "agents", "usage", "context", "btw", "switch"],
+    pi: ["settings", "tree", "resume", "scoped-models"],
+    gjc: ["settings", "theme", "tree", "resume", "sessions", "transcript", "routing", "model"],
+    omo: ["settings", "tree", "thinking", "scoped-models", "favorite-models", "sessions", "resume", "rename", "share", "trust"],
+    hermes: ["model", "reload-mcp", "new", "reset", "clear"],
+    devin: ["model", "models", "config", "resume", "theme", "shortcuts", "mode", "btw"],
+    agy: ["model", "resume", "config", "permissions", "mcp", "skills", "usage", "context", "help", "tasks", "rewind", "artifact", "codesearch", "diff", "changelog"],
+    grok: ["settings", "sessions", "resume", "plugins", "skills", "hooks", "help", "usage", "context", "history"],
+  };
+
+  test("lists exactly the recorded commands, each sent bare", () => {
+    expect(Object.fromEntries(Object.entries(SCREEN_AUTO_RETURN).map(([agent, known]) => [agent, [...known.bare]]))).toEqual(RECORDED);
+    for (const [agent, commands] of Object.entries(RECORDED)) {
+      for (const command of commands) expect([agent, command, screenReturnArmed(agent, `/${command}`, command)]).toEqual([agent, command, true]);
+    }
+    expect(screenReturnArmed("omp", "/Settings ", "Settings")).toBe(true);
+  });
+
+  test("a form with arguments only where the recording covered one: Codex's /cd into a folder", () => {
+    expect(screenReturnArmed("codex", "/cd ../other", "cd")).toBe(true);
+    expect(screenReturnArmed("codex", "/cd", "cd")).toBe(false);
+    expect(screenReturnArmed("codex", "/review the auth change", "review")).toBe(false);
+    expect(screenReturnArmed("omp", "/btw what changed?", "btw")).toBe(false);
+    expect(screenReturnArmed("devin", "/model swe-1.6", "model")).toBe(false);
+  });
+
+  test("print forms, toggles, $EDITOR handoffs and screens that close onto text stay manual", () => {
+    const manual: [string, string][] = [["codex", "status"], ["codex", "vim"], ["codex", "mention"], ["codex", "side"], ["codex", "btw"], ["codex", "goal"],
+      ["omp", "plan"], ["omp", "copy"], ["pi", "hotkeys"], ["pi", "session"], ["gjc", "hotkeys"], ["gjc", "btw"], ["omo", "tasks"], ["omo", "btw"],
+      ["hermes", "palette"], ["hermes", "prompt"], ["hermes", "compose"], ["hermes", "resume"], ["devin", "mcp"], ["devin", "status"], ["agy", "open"],
+      ["grok", "model"], ["grok", "theme"], ["grok", "status"]];
+    for (const [agent, command] of manual) expect([agent, command, screenReturnArmed(agent, `/${command}`, command)]).toEqual([agent, command, false]);
+  });
+
+  test("Claude Code, OpenCode and agents never recorded come back by hand from the screen", () => {
+    for (const agent of ["claude", "opencode", "cmd", "toString", null]) expect(screenReturnArmed(agent, "/settings", "settings")).toBe(false);
+  });
+});
+
+describe("watchReturn", () => {
+  test("arms on the agent's arm set, returns on the next ready frame", () => {
+    expect(watchReturn("codex", false, "gone")).toEqual({ step: "wait", armed: true });
+    expect(watchReturn("codex", true, "gone")).toEqual({ step: "wait", armed: true });
+    expect(watchReturn("codex", true, "ready")).toEqual({ step: "return" });
+    // the row drawn under a panel arms the agents whose panels keep it, and no other
+    expect(watchReturn("agy", false, "covered")).toEqual({ step: "wait", armed: true });
+    expect(watchReturn("codex", false, "covered")).toEqual({ step: "wait", armed: false });
+    // Hermes draws its row again before every screen: only a covered row arms it
+    expect(watchReturn("hermes", false, "gone")).toEqual({ step: "wait", armed: false });
+    expect(watchReturn("hermes", false, "covered")).toEqual({ step: "wait", armed: true });
+  });
+
+  test("a ready or draft frame before arming, and a blank frame, change nothing", () => {
+    expect(watchReturn("omp", false, "ready")).toEqual({ step: "wait", armed: false });
+    expect(watchReturn("omp", false, "draft")).toEqual({ step: "wait", armed: false });
+    expect(watchReturn("omp", false, "unknown")).toEqual({ step: "wait", armed: false });
+    expect(watchReturn("omp", true, "unknown")).toEqual({ step: "wait", armed: true });
+  });
+
+  test("a draft after arming, or an agent with no screen return, leaves it to the reader", () => {
+    expect(watchReturn("grok", true, "draft")).toEqual({ step: "manual" });
+    expect(watchReturn("claude", false, "gone")).toEqual({ step: "manual" });
+    expect(watchReturn("opencode", true, "ready")).toEqual({ step: "manual" });
   });
 });
 

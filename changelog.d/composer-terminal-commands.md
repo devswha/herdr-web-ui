@@ -7,7 +7,8 @@
   phone's Back return too, and Escape goes to the agent. On a desktop the message box stays under
   the terminal, dimmed; on a phone the key bar takes its place. Claude Code's panels (`/config`,
   `/permissions`, `/theme` and the like) can bring the chat back by themselves when you close them,
-  once Claude records it; every other command and agent returns by hand. A Ran in terminal row's
+  once Claude records it; other agents' recorded screens do once their input row is back, and the
+  rest return by hand. A Ran in terminal row's
   Open Terminal shows the terminal over the chat again. Busy commands stay queued; only an
   explicit Send now opens the terminal, never automatic delivery. Refused sends keep their draft
   and note. Watch-only devices never send or open it, and /resume still opens Earlier sessions.

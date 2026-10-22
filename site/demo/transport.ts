@@ -9,7 +9,9 @@
  * every chat, the Codex approval card (answering it sets Codex to work and ends the turn), the
  * command palette, settings, and the terminal: the release shell tab replays a recording of `git log` and `bun test`, then a small pretend shell answers what you
  * type. `demo logs` loads fictional retained history for scrolling and search; agent panes show
- * one notice instead of a TUI. A message sent from a chat gets a demo answer.
+ * one notice instead of a TUI, and Claude Code's and omp's draw their empty input row under it (and
+ * the screen a few terminal commands open over it, site/demo/agentScreens.ts). A message sent from
+ * a chat gets a demo answer.
  * What does not: files, images, push and remote PCs, which need a real machine.
  */
 import type { AgentIntegration, AgentStatus, CommandForm, CommandOutcome, ConversationTurn, IntegrationsResponse, Machine, MachineEvent, PaneDirection, PaneFindMatch, PaneFindRequest, PanePlan, PaneResized, PaneSplit, PaneSwapped, PaneZoomed, PendingMessage, PlanStep, PluginActionResult, PluginActions, PluginActionsResponse, PortalStatus, ServerMessage, SessionSnapshot, SlashCommand, TabMoved, UsageReport, WorkspaceCreated, WorkspaceInfo, WorktreeEntry, WorktreeListing, WorktreeOpened, WorktreeRemoved } from "../../shared/protocol.ts";
@@ -24,6 +26,7 @@ import { rollupStatus } from "../../src/lib/status.ts";
 import { movedTabOrder } from "../../src/lib/tabOrder.ts";
 import { agentSkillRows, CHATS, PROMPT, SESSION_HISTORY_AGENTS, sessionHistoryRows, SPECS, type DemoSpec } from "./fixtures.ts";
 import { DemoHistory } from "./history.ts";
+import { screenAgent, screenCommand, screenFrame } from "./agentScreens.ts";
 import machinesFixture from "./fixtures/machines.json";
 import agentsFixture from "./fixtures/agents.json";
 import commandsFixture from "./fixtures/commands.json";
@@ -399,9 +402,19 @@ const CLAUDE_LATER: SlashCommand[] = [
   { name: "context", description: "Show how the context window is used", source: "builtin", forms: [{ match: "bare", interaction: "none" }] },
 ];
 
-/** GET /api/pane/commands: the recorded Claude list, with its forms for a Claude pane. */
+/**
+ * omp's terminal screens the demo draws (site/demo/agentScreens.ts), as server/skills/omp.ts
+ * describes them: /settings opens a panel over the editor, /copy prints in an empty session.
+ */
+const OMP_TERMINAL: SlashCommand[] = [
+  { name: "settings", description: "Open the settings", source: "builtin", forms: [{ match: "bare", interaction: "terminal" }, { match: "other", interaction: "terminal" }] },
+  { name: "copy", description: "Copy the last answer", source: "builtin", forms: [{ match: "bare", interaction: "terminal" }, { match: "other", interaction: "terminal" }] },
+];
+
+/** GET /api/pane/commands: the recorded Claude list, with its forms for a Claude pane (and omp's terminal screens for an omp pane). */
 function paneCommandRows(paneId: string): SlashCommand[] {
   const rows = (commandsFixture as { commands: SlashCommand[] }).commands;
+  if (agentOf(paneId) === "omp") return [...rows, ...OMP_TERMINAL.map((row) => ({ ...row, provenance: { transport: "static" as const, verified: false }, id: row.name }))];
   if (agentOf(paneId) !== "claude") return rows;
   const described = rows.map((row) => {
     const forms = CLAUDE_FORMS[row.name];
@@ -490,6 +503,33 @@ function closeClaudePanel(paneId: string, text: string): void {
   conversationChanged(paneId);
 }
 
+/** what a Claude or omp pane's screen shows over its input row (site/demo/agentScreens.ts), by pane */
+const agentScreens = new Map<string, { open: { name: string; text: string } | null; printed: string | null }>();
+const screenOf = (paneId: string) => agentScreens.get(paneId) ?? { open: null, printed: null };
+
+/** the pane's screen drawn again for its grid, to every terminal attached to it */
+function drawAgentScreen(paneId: string): void {
+  for (const socket of sockets) socket.drawScreen(paneId);
+}
+
+/** A terminal command that opens a screen in the demo's Claude or omp pane, or prints over its input row. */
+function openAgentScreen(paneId: string, text: string, name: string): void {
+  const agent = screenAgent(agentOf(paneId));
+  const effect = agent === null ? null : screenCommand(agent, name);
+  if (effect === null) return;
+  agentScreens.set(paneId, effect === "open" ? { open: { name, text }, printed: null } : { open: null, printed: "Nothing to copy yet." });
+  drawAgentScreen(paneId);
+}
+
+/** Escape typed into such a pane closes the screen (or clears the line printed over the row), and the row comes back. */
+function closeAgentScreen(paneId: string, text: string): void {
+  if (text !== "\x1b" || screenAgent(agentOf(paneId)) === null) return;
+  const screen = screenOf(paneId);
+  if (screen.open === null && screen.printed === null) return;
+  agentScreens.set(paneId, { open: null, printed: null });
+  drawAgentScreen(paneId);
+}
+
 /** The bridge takes one accepted pending message when the current mock turn finishes. */
 /**
  * The first messages create requests queued for new panes' agents (`first_message`), by pane, as the
@@ -562,6 +602,7 @@ function submitToChat(paneId: string, text: string): void {
     const outcome = recordOutcome(paneId, text, "terminal-required");
     const closes = agentOf(paneId) === "claude" ? CLAUDE_PANEL_CLOSED[command.name] : undefined;
     if (closes !== undefined) openPanels.set(paneId, closes); else openPanels.delete(paneId);
+    openAgentScreen(paneId, text, command.name);
     setTimeout(() => { outcome.preview = terminalPreview(paneId, text, command.name); outcome.updated_at = now(); }, OUTCOME_PREVIEW_MS);
     return;
   }
@@ -1354,6 +1395,11 @@ const NOTICE_LINES = [
   "live through herdr terminal attach and shared with",
   "the herdr TUI on the PC. Switch back to Chat above.",
 ];
+/** the notice's box as plain rows, for the screens that draw an agent's input row under it */
+const NOTICE_BOX = (() => {
+  const width = Math.max(...NOTICE_LINES.map((line) => line.length)) + 4;
+  return [`┌${"─".repeat(width)}┐`, ...NOTICE_LINES.map((line) => `│  ${line.padEnd(width - 4)}  │`), `└${"─".repeat(width)}┘`];
+})();
 const NOTICE = (() => {
   const width = Math.max(...NOTICE_LINES.map((line) => line.length)) + 4;
   const amber = (text: string) => `\x1b[38;5;214m${text}\x1b[0m`;
@@ -1549,7 +1595,7 @@ class DemoSocket extends EventTarget {
       // a Stop (`stop`) is typed like any key: the demo has no pty for a following message to overtake
       case "input":
         if (message.pane_id && message.text !== undefined) {
-          if (this.mode === "interact") closeClaudePanel(message.pane_id, message.text);
+          if (this.mode === "interact") { closeClaudePanel(message.pane_id, message.text); closeAgentScreen(message.pane_id, message.text); }
           this.typed(message.pane_id, message.text);
         }
         break;
@@ -1765,6 +1811,17 @@ class DemoSocket extends EventTarget {
       for (const socket of sockets) if (socket === this || socket.attached.has(paneId)) socket.push({ type: "pane-geometry", pane_id: paneId, cols: cols!, rows: rows! });
     }
     if (histories.get(paneId)?.resize(cols!, rows!)) redrawHistory(paneId);
+    // an agent draws its screen again for the new grid
+    else if (before?.cols !== cols || before?.rows !== rows) drawAgentScreen(paneId);
+  }
+
+  /** the pane's agent screen, when it draws one, for the pane's grid */
+  drawScreen(paneId: string): void {
+    const agent = screenAgent(agentOf(paneId));
+    if (agent === null || !this.attached.has(paneId) || histories.has(paneId)) return;
+    const grid = demoGrid(paneId);
+    const screen = screenOf(paneId);
+    this.push({ type: "pty-data", pane_id: paneId, data: screenFrame(agent, NOTICE_BOX, screen.printed, screen.open, grid.cols, grid.rows) });
   }
 
   renderHistory(paneId: string): void {
@@ -1820,7 +1877,8 @@ class DemoSocket extends EventTarget {
       this.later(() => { if (this.attached.has(paneId) && !histories.has(paneId)) this.push({ type: "pty-data", pane_id: paneId, data: "\x1b[2J\x1b[H" + PROMPT_TEXT }); }, 60);
       return;
     }
-    this.later(() => this.push({ type: "pty-data", pane_id: paneId, data: NOTICE }), 60);
+    if (screenAgent(agentOf(paneId)) !== null) this.later(() => this.drawScreen(paneId), 60);
+    else this.later(() => this.push({ type: "pty-data", pane_id: paneId, data: NOTICE }), 60);
   }
 
   /** the pretend shell: echo, backspace, and a few commands it knows */

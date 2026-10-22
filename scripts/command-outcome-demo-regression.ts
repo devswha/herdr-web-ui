@@ -132,6 +132,23 @@ try {
           assert.equal(await btw.locator(".chat-outcome, .chat-bubble, details").count(), 0);
           assert.equal(await back.locator(".chat-turn-user:not(.chat-terminal-command)").count(), turnsBefore + 1);
           await page.screenshot({ path: shot("btw-returned"), animations: "disabled" });
+          // the answer is still open in the terminal, where the next message would be typed and do
+          // nothing: the composer says so (src/lib/inputRow.ts), and dismissing it there clears that
+          const stillOpen = chatStack(page, panes.flaky).locator(".composer-notice", { hasText: "/btw is still open in the terminal" });
+          await stillOpen.waitFor();
+          await stillOpen.getByRole("button", { name: "Show terminal", exact: true }).click();
+          await peekStack(page, panes.flaky).waitFor();
+          if (width <= 480) {
+            const escape = page.locator(`.terminal-stack[data-pane-owner="${panes.flaky}"] .key-bar .key[data-key="Escape"]`);
+            await page.waitForFunction((pane) => document.querySelector<HTMLButtonElement>(`.terminal-stack[data-pane-owner="${pane}"] .key-bar .key[data-key="Escape"]`)?.disabled === false, panes.flaky);
+            await escape.click();
+          } else {
+            await page.waitForFunction(() => document.activeElement?.classList.contains("xterm-helper-textarea") === true);
+            await page.keyboard.press("Escape");
+          }
+          await page.getByRole("button", { name: "Back to Chat", exact: true }).click();
+          await chatStack(page, panes.flaky).waitFor();
+          await page.locator(".composer-notice", { hasText: "is still open in the terminal" }).waitFor({ state: "detached" });
           await send(page, "and one more question for the transcript");
           await back.locator(".chat-bubble-body", { hasText: "and one more question for the transcript" }).waitFor();
           await back.locator(".chat-turn-agent").last().getByText("This is the demo, so nothing ran", { exact: false }).waitFor();
