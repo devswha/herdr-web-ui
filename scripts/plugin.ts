@@ -58,8 +58,8 @@ const HERDR_PLUGIN_STATE = join(herdrStateDir(process.env, platform(), homedir()
 const MANAGED_STATE_DIR = [PLUGIN_ID, LEGACY_PLUGIN_ID].map((id) => join(HERDR_PLUGIN_STATE, id)).find((dir) => existsSync(dir)) ?? join(HERDR_PLUGIN_STATE, PLUGIN_ID);
 // run by hand, without herdr's HERDR_PLUGIN_STATE_DIR: a server started from a checkout keeps its
 // own dir while it runs; otherwise the dir herdr gives the plugin, where its startup hook wrote
-const STATE_DIR = process.env["HERDR_PLUGIN_STATE_DIR"]
-  ?? (pidIn(join(DEFAULT_STATE_DIR, "server.pid")) !== null || !existsSync(MANAGED_STATE_DIR) ? DEFAULT_STATE_DIR : MANAGED_STATE_DIR);
+const STATE_DIR = runningStateDir(process.env["HERDR_PLUGIN_STATE_DIR"]
+  ?? (pidIn(join(DEFAULT_STATE_DIR, "server.pid")) !== null || !existsSync(MANAGED_STATE_DIR) ? DEFAULT_STATE_DIR : MANAGED_STATE_DIR));
 const CONFIG_DIR = process.env["HERDR_PLUGIN_CONFIG_DIR"] ?? herdrConfigDir() ?? ownDir(join(homedir(), ".config"));
 adoptLegacyConfig(CONFIG_DIR);
 const PID_FILE = join(STATE_DIR, "server.pid");
@@ -222,6 +222,17 @@ function recordedPid(): number | null {
 }
 
 /** the live process a pid file names, or null */
+/**
+ * herdr keeps a plugin's state dir by its id too, and hands the plugin its new id's dir as soon as
+ * `herdr plugin update` brings the new manifest. A server started under the old id keeps its pid
+ * in the old id's dir until it stops, so `stop` and `status` read that dir while it runs.
+ */
+function runningStateDir(dir: string): string {
+  if (basename(dir) !== PLUGIN_ID || pidIn(join(dir, "server.pid")) !== null) return dir;
+  const legacy = join(dirname(dir), LEGACY_PLUGIN_ID);
+  return pidIn(join(legacy, "server.pid")) !== null ? legacy : dir;
+}
+
 function pidIn(file: string): number | null {
   if (!existsSync(file)) return null;
   const pid = Number(readFileSync(file, "utf8").trim());
