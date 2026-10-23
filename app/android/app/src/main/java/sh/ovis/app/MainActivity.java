@@ -82,10 +82,13 @@ public class MainActivity extends BridgeActivity {
                 // call's arguments; logcat keeps them on the phone (capacitor.config.json turns it
                 // off for the connect screen)
                 .setLoggingEnabled(false)
+                // light icons on the app's dark background until a page gives its theme-color, as
+                // capacitor.config.json does for the connect screen: Capacitor's SystemBars would
+                // otherwise follow the phone's light mode with dark icons
+                .setPluginsConfiguration(new JSObject().put("SystemBars", new JSObject().put("style", "DARK")))
                 .create();
         }
         super.onCreate(savedInstanceState);
-        paintBars(Color.rgb(18, 16, 14));
         String appOrigin = bridge.getScheme() + "://" + bridge.getHost();
         followThemeColor(host == null ? Collections.singleton(appOrigin) : new HashSet<>(Arrays.asList(appOrigin, origin)));
         if (host != null) {

@@ -9,5 +9,10 @@
   },
   "android": {
     "backgroundColor": "#12100e"
+  },
+  "plugins": {
+    "SystemBars": {
+      "style": "DARK"
+    }
   }
 }
