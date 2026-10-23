@@ -75,7 +75,7 @@ bun run check run --build bun scripts/ui-regression.ts                     # bui
 ```
 
 `fast` needs no herdr. The other modes run on a herdr of their own: its config, its plugin state
-and the web UI's state live in a directory made for the run (`XDG_CONFIG_HOME`, `XDG_STATE_HOME`,
+and Ovis's state live in a directory made for the run (`XDG_CONFIG_HOME`, `XDG_STATE_HOME`,
 `OVIS_STATE_DIR`), under a session name made for the run. Nothing reads your herdr config,
 so no plugin installed there starts with the test servers, and two runs on one PC share no
 socket and no file. The run stops its herdr servers and removes the directory when it ends, also
