@@ -808,6 +808,8 @@ export interface InteractivePromptStep {
   label: string;
   answered: boolean;
   current: boolean;
+  /** The native widget can switch to this step without submitting an answer. */
+  can_navigate?: boolean;
 }
 
 export interface InteractivePromptAnswer {

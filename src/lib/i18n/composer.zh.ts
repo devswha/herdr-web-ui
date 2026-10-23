@@ -6,6 +6,7 @@
  * Register and fixed terms follow ../i18n.zh.ts; a key another feature also uses goes there.
  */
 export const COMPOSER_ZH: Record<string, string> = {
+  "Submit or clear edits before switching questions.": "请先提交或清空尚未提交的修改，再切换题目。",
   "Password or PIN": "密码或 PIN",
   "Enter a single-line password or PIN.": "请输入不含换行的密码或 PIN。",
   "Update this PC to use masked input.": "请更新此电脑上的应用以使用密码输入框。",
