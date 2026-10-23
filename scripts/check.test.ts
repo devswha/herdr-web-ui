@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import type { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
-import { CI_NODE_MAJOR, acquire, acquireWaiting, checkoutIdentity, describeGroup, describeHolders, endGroup, isolate, lock, lockPort, maxRuns, needsLock, plan, sanitizeCommand, stopSessions, teardown, waitSeconds, warnNodeVersionMismatch } from "./check.ts";
+import { CI_NODE_MAJOR, MAX_LOCK_PORT, MAX_RUNS_LIMIT, acquire, acquireWaiting, checkoutIdentity, describeGroup, describeHolders, endGroup, isolate, lock, lockPort, maxRuns, needsLock, plan, sanitizeCommand, stopSessions, teardown, waitSeconds, warnNodeVersionMismatch } from "./check.ts";
 
 const made: string[] = [];
 afterEach(() => { for (const path of made.splice(0)) rmSync(path, { recursive: true, force: true }); });
@@ -49,11 +49,24 @@ describe("check environment", () => {
     expect(lockPort({})).toBe(41737);
     expect(lockPort({ CHECK_LOCK_PORT: "" })).toBe(41737);
     expect(lockPort({ CHECK_LOCK_PORT: "1024" })).toBe(1024);
-    expect(lockPort({ CHECK_LOCK_PORT: "65535" })).toBe(65535);
+    expect(lockPort({ CHECK_LOCK_PORT: String(MAX_LOCK_PORT) })).toBe(MAX_LOCK_PORT);
     expect(lockPort({ CHECK_LOCK_PORT: "50000" })).toBe(50000);
-    for (const value of ["1023", "65536", "-1", "1.5", "port", " 5000"]) {
+    for (const value of ["1023", String(MAX_LOCK_PORT + 1), "65535", "65536", "-1", "1.5", "port", " 5000"]) {
       expect(() => lockPort({ CHECK_LOCK_PORT: value })).toThrow("CHECK_LOCK_PORT");
     }
+  });
+
+  it("acquires every slot and the admission port at the highest CHECK_LOCK_PORT it accepts", async () => {
+    const base = lockPort({ CHECK_LOCK_PORT: String(MAX_LOCK_PORT) });
+    // the most slots a run can ask for, so the admission port is the highest one acquire() uses.
+    // CI's runners share one loopback: a checkout of this run's own, and a wait, let two runs of
+    // this test meet at the top range without refusing each other
+    const top = { slots: MAX_RUNS_LIMIT, scan: MAX_RUNS_LIMIT, pid: process.pid, checkout: `/top-${process.pid}` };
+    const held = await acquireWaiting({ ...top, base }, { waitMs: 10_000, pollMs: 20 });
+    if (!("release" in held)) throw new Error(`the top lock range is held on this PC: ${describeHolders(held.holders)}`);
+    held.release();
+    // one port higher and the admission port would be past 65535
+    await expect(acquire({ ...top, base: MAX_LOCK_PORT + 1 })).rejects.toThrow("65536");
   });
 
   it("warns only when the local Node major differs from CI", () => {

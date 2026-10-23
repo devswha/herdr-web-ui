@@ -243,11 +243,13 @@ export function lockPort(env: Record<string, string | undefined>): number {
   const asked = env["CHECK_LOCK_PORT"];
   if (asked === undefined || asked === "") return DEFAULT_LOCK_PORT;
   const port = /^\d+$/.test(asked) ? Number(asked) : Number.NaN;
-  if (!(port >= 1024 && port <= 65535)) throw new Error(`CHECK_LOCK_PORT must be a whole number from 1024 to 65535, not "${asked}"`);
+  if (!(port >= 1024 && port <= MAX_LOCK_PORT)) throw new Error(`CHECK_LOCK_PORT must be a whole number from 1024 to ${MAX_LOCK_PORT}, not "${asked}"`);
   return port;
 }
 /** The most slots CHECK_MAX_RUNS may ask for; every run looks at all of them for its own checkout. */
 export const MAX_RUNS_LIMIT = 8;
+/** The highest lock base: acquire() listens on the slots and on the admission port above them, up to base + MAX_RUNS_LIMIT. */
+export const MAX_LOCK_PORT = 65535 - MAX_RUNS_LIMIT;
 
 /**
  * How many herdr-backed runs may share this PC: CHECK_MAX_RUNS (1 to 8), else one per eight cores,
