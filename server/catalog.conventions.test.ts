@@ -1,3 +1,7 @@
+/**
+ * AST checks for agent command catalog boundaries.
+ * Split strings and JSX text are not detected by the boundary literal scan.
+ */
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -225,7 +229,13 @@ describe("agent command catalog conventions", () => {
       ...files("shared/**/*.{ts,tsx,mjs,js}"),
     ].filter((file) => !/\.(?:test|spec)\.[^.]+$/.test(file));
     for (const file of candidates) {
-      expect(forbiddenBoundaryLiterals(read(file), file), `${file} contains a forbidden agent command literal`).toEqual([]);
+      const violations = forbiddenBoundaryLiterals(read(file), file);
+      expect(
+        violations,
+        `${file} contains forbidden agent command literals: ${JSON.stringify(violations)}. ` +
+          "Send commands through the catalog and normal terminal submit path, not raw agent API calls " +
+          "(docs/agent-commands.md#the-three-contracts). Keep --takeover only in the user-requested terminal attachment path.",
+      ).toEqual([]);
     }
   }, 60_000);
 
