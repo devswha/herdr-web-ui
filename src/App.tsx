@@ -24,7 +24,8 @@ import { usePreferencesSync } from "./lib/preferencesSync.ts";
 import { keepEventStream } from "./lib/eventStream.ts";
 import { TabStrip } from "./components/TabStrip.tsx";
 import { SettingsDialog } from "./components/SettingsDialog.tsx";
-import { loadedOnSettingsEntry, onSettingsHistory, recordSettings, settingsEntry } from "./lib/settingsHistory.ts";
+import { loadedOnSettingsEntry, settingsEntry } from "./lib/settingsHistory.ts";
+import { useSettingsDialog } from "./lib/useSettingsDialog.ts";
 import { sheetSteppedOff, usePhoneSheetBack } from "./lib/sheetHistory.ts";
 import { peekFor, type PeekRequest, type TerminalPeek } from "./lib/terminalPeek.ts";
 import { fileFromLink, isNavigation, linkSearch, linksSomewhere, NAV_KEY, readLink, resolveLink, slugOf, type AppLink, type CreateDraft, type LinkNote } from "./lib/deepLink.ts";
@@ -512,29 +513,7 @@ export function App() {
     if (filePanelAvailable && openPresentation(path, settings.fileOpen) === "panel") setFilesOpen(false);
     openFile({ path, paneId: selectedPaneId, machineId: selectedMachineId });
   }, [openFile, selectedPaneId, selectedMachineId, filePanelAvailable, settings.fileOpen]);
-  // a link to Settings opens it on its page, for that first opening alone
-  const [settingsOpen, setSettingsOpen] = useState(() => initialLink?.settings != null);
-  const [settingsLinkPage, setSettingsLinkPage] = useState<string | null>(() => initialLink?.settings ?? null);
-  // the group on that page a link named: in the address while that page is shown
-  const [settingsLinkSection, setSettingsLinkSection] = useState<string | null>(() => initialLink?.section ?? null);
-  // the page Settings shows, for the address
-  const [settingsPage, setSettingsPage] = useState<string | null>(null);
-  // set by a button that points at one section of Settings, for that opening alone
-  const [settingsSection, setSettingsSection] = useState<"updates" | null>(null);
-  const closeSettings = useCallback(() => { setSettingsOpen(false); setSettingsSection(null); setSettingsLinkPage(null); setSettingsLinkSection(null); setSettingsPage(null); }, []);
-  const settingsLinkPageRef = useRef(settingsLinkPage); settingsLinkPageRef.current = settingsLinkPage;
-  const onSettingsPage = useCallback((page: string | null) => {
-    setSettingsPage(page);
-    if (page !== settingsLinkPageRef.current) setSettingsLinkSection(null);
-  }, []);
-  // Settings is in the history (lib/settingsHistory.ts): Back out of its last entry closes it,
-  // Forward onto one opens it again, and closing it any other way takes its entries off
-  useEffect(() => onSettingsHistory((entry, own) => {
-    if (own) return;
-    if (entry === null) closeSettings();
-    else setSettingsOpen(true);
-  }), [closeSettings]);
-  useEffect(() => { if (!settingsOpen) recordSettings([]); }, [settingsOpen]);
+  const { settingsOpen, setSettingsOpen, settingsLinkPage, setSettingsLinkPage, settingsLinkSection, settingsPage, settingsSection, setSettingsSection, closeSettings, onSettingsPage } = useSettingsDialog(initialLink);
   const [newSessionOpen, setNewSessionOpen] = useState(false);
   // the New workspace dialog in the address (lib/deepLink.ts): the fields a link filled for this
   // opening, and what the fields say now
