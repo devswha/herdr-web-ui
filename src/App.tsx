@@ -1,7 +1,7 @@
 import { type CSSProperties, type DragEvent, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Bell, Ellipsis, FolderOpen, Link, Menu, MessageSquare, PanelLeft, Search, SquareTerminal, X } from "lucide-react";
 
-import type { AgentStatus, ServerMessage, AccessRefusal, HealthAuth, HerdrPane, SessionHistoryAgent } from "../shared/protocol.ts";
+import type { AgentStatus, AccessRefusal, HealthAuth, HerdrPane, SessionHistoryAgent } from "../shared/protocol.ts";
 import { ApiError, authenticate, createTab, fetchHealth, fetchBridgeHealth, fetchMachines, fetchSession, pairDevice, sendTestPush, shareSeen, signOut, splitPane, verifySourceBoot, zoomPane, type HealthInfo } from "./lib/api.ts";
 import { applyHealthRead, healthFreshness, machineHealth, type HealthBook } from "./lib/healthPresentation.ts";
 import { deviceLabel, takePairCode } from "./lib/phone.ts";
@@ -87,6 +87,7 @@ import { useFileViewer } from "./lib/useFileViewer.ts";
 import { useFocusReturn } from "./lib/useFocusTrap.ts";
 import { useRepoDiffViewer } from "./lib/useRepoDiffViewer.ts";
 import { useT } from "./lib/i18n.ts";
+import { useConnectionChip, useServerMessageHandler } from "./lib/useConnectionChip.ts";
 import { markSelection, selectionStill, type SelectionMark } from "./lib/selectionMark.ts";
 import { followsHerdrFocus } from "./lib/followFocus.ts";
 import { useScreenWakeLock } from "./lib/wakeLock.ts";
@@ -520,13 +521,7 @@ export function App() {
   const [newTab, setNewTab] = useState<NewTabTarget | null>(null);
   // the earlier sessions of a workspace's folder (components/SessionHistory.tsx), while open
   const [sessionHistory, setSessionHistory] = useState<{ machineId: string; workspaceId: string; agent: SessionHistoryAgent; paneId: string | null; askingPaneId: string | null; selectedPaneId: string | null } | null>(null);
-  const [connected, setConnected] = useState(false);
-  /** the active terminal's socket has been connected on this page before (PaneTerminal reports it): not
-   *  connected, the chip says reconnecting; before this page's first connection to the PC, connecting */
-  const [connectedBefore, setConnectedBefore] = useState(false);
-  // the active slot's pane could not be drawn: no terminal is attached there to say so itself
-  const paneLost = useCallback(() => setConnected(false), []);
-  const [outputStopped, setOutputStopped] = useState(false);
+  const { connected, setConnected, connectedBefore, setConnectedBefore, paneLost, outputStopped, setOutputStopped } = useConnectionChip();
   const [notifications, setNotifications] = useState<NotificationState>(() => notificationState());
   // this device has a server-side push subscription: alerts come from the server, not the tab
   const [pushOn, setPushOn] = useState(false);
@@ -773,9 +768,7 @@ export function App() {
     });
   }, [locked, scheduleRefetch, dropIn, chime, reorderCoordinator]);
 
-  const handleServerMessage = useCallback((message: ServerMessage) => {
-    if (message.type === "error" && message.code === "output_stalled") setOutputStopped(true);
-  }, []);
+  const handleServerMessage = useServerMessageHandler(setOutputStopped);
 
   const enableNotifications = useCallback(async () => {
     // in-app alerts need no permission: the switch goes on whatever the browser answers
