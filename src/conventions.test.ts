@@ -204,11 +204,11 @@ describe("terminal mount", () => {
       "Every new Terminal({...}) sets scrollback: 0: herdr owns scrollback, and xterm's own would reserve a scrollbar column (AGENTS.md).");
   });
 
-  // The mount hook is called before the attach reset effect so a reset cancels pending input before the next task.
+  // The mount hook is called before usePaneAttach (whose reset effect cancels pending input before the next task).
   it("mounts the terminal before the attach reset effect runs", () => {
     const source = read("src/components/PaneTerminal.tsx");
     const mount = source.indexOf("useTerminalMount(");
-    const reset = source.lastIndexOf("useLayoutEffect(", source.indexOf("}, [paneId, terminalId]);"));
+    const reset = source.indexOf("usePaneAttach(");
     expect(mount).toBeGreaterThan(-1);
     expect(reset).toBeGreaterThan(-1);
     expect(mount).toBeLessThan(reset);
