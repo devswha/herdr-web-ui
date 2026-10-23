@@ -6,6 +6,9 @@
 #
 # Fail closed: every exit before the job is explicitly allowed at the end refuses it, an error of
 # this script included (a missing or unreadable event file, broken JSON, an unset variable).
+# First of all: a write to a closed output (an error message on a stderr nobody reads) must not
+# end this shell with SIGPIPE before the refusal below can run.
+trap '' PIPE
 set -euo pipefail
 
 allowed=0
