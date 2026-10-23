@@ -628,7 +628,7 @@ describe("GJC SDK transcript identity binding", () => {
     expect(captured?.options.maxBuffer).toBe(1024 * 1024);
     expect(captured?.options.timeout).toBeGreaterThan(0);
     expect(captured?.options.timeout).toBeLessThanOrEqual(5_000);
-    expect(captured?.options.killSignal).toBe("SIGKILL");
+    expect(captured?.options.killSignal).toBe("SIGTERM");
   });
 });
 

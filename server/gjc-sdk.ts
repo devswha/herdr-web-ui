@@ -32,11 +32,18 @@ function lookupExecutionError(error: unknown): GjcSdkLookupError {
   return new GjcSdkLookupError(timedOut ? "timeout" : "unavailable");
 }
 
+/**
+ * A timed-out `gjc sdk` call is ended with SIGTERM, never SIGKILL: the CLI takes GJC's session-index
+ * file lock, and a SIGKILL during acquisition leaks its `index.jsonl.lock.pending.*` staging directory,
+ * which GJC's reaper never removes. Every later lock acquisition then re-inspects the leaked entries,
+ * which starves the broker's heartbeat checkpoint until no running session reads as live. SIGTERM lets
+ * the CLI release the lock and exit in ~30 ms.
+ */
 export interface GjcSdkCommandOptions {
   env: NodeJS.ProcessEnv;
   encoding: "utf8";
   timeout: number;
-  killSignal: "SIGKILL";
+  killSignal: "SIGTERM";
   maxBuffer: number;
   shell: false;
   windowsHide: true;
@@ -257,7 +264,7 @@ async function runBounded(
     env: { ...process.env, GJC_SDK_BROKER_AUTOSTART: "0" },
     encoding: "utf8",
     timeout: remaining,
-    killSignal: "SIGKILL",
+    killSignal: "SIGTERM",
     maxBuffer: MAX_BUFFER,
     shell: false,
     windowsHide: true,
@@ -441,7 +448,7 @@ export async function gjcSdkQuery(
     env: { ...process.env, GJC_SDK_BROKER_AUTOSTART: "0" },
     encoding: "utf8",
     timeout: QUERY_TIMEOUT_MS,
-    killSignal: "SIGKILL",
+    killSignal: "SIGTERM",
     maxBuffer: MAX_BUFFER,
     shell: false,
     windowsHide: true,
