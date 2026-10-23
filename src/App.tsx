@@ -1,7 +1,7 @@
 import { type CSSProperties, type DragEvent, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Bell, Ellipsis, FolderOpen, Link, Menu, MessageSquare, PanelLeft, Search, SquareTerminal, X } from "lucide-react";
 
-import type { AccessRefusal, HealthAuth, HerdrPane, SessionHistoryAgent } from "../shared/protocol.ts";
+import type { AccessRefusal, HealthAuth, HerdrPane } from "../shared/protocol.ts";
 import { ApiError, authenticate, createTab, fetchHealth, fetchBridgeHealth, fetchMachines, fetchSession, pairDevice, shareSeen, signOut, splitPane, verifySourceBoot, zoomPane, type HealthInfo } from "./lib/api.ts";
 import { applyHealthRead, healthFreshness, machineHealth, type HealthBook } from "./lib/healthPresentation.ts";
 import { deviceLabel, takePairCode } from "./lib/phone.ts";
@@ -14,11 +14,9 @@ import { PANE_TABPANEL_ID, paneTabPanelLabel } from "./lib/paneRegion.ts";
 import { worktreeRepoName } from "./lib/composerStrip.ts";
 import { AccessGate } from "./components/AccessGate.tsx";
 import { AgentMark } from "./components/AgentMark.tsx";
-import { NewSessionDialog, type NewTabTarget } from "./components/NewSessionDialog.tsx";
+import { NewSessionDialog } from "./components/NewSessionDialog.tsx";
 import { SessionHistory } from "./components/SessionHistory.tsx";
 import { sessionHistoryAgent, sessionHistoryListAgent, sessionHistorySourcePane } from "./lib/sessionHistory.ts";
-import { useRecentResumes } from "./lib/useRecentResumes.ts";
-import { forgetSessionHistoryProbesOfPcsAway } from "./lib/useSessionHistoryOffered.ts";
 import { passingFolder, recentDirectories } from "./lib/recent-directories.ts";
 import { usePreferencesSync } from "./lib/preferencesSync.ts";
 import { keepEventStream } from "./lib/eventStream.ts";
@@ -28,22 +26,20 @@ import { loadedOnSettingsEntry, settingsEntry } from "./lib/settingsHistory.ts";
 import { useSettingsDialog } from "./lib/useSettingsDialog.ts";
 import { sheetSteppedOff, usePhoneSheetBack } from "./lib/sheetHistory.ts";
 import { peekFor, type PeekRequest, type TerminalPeek } from "./lib/terminalPeek.ts";
-import { fileFromLink, isNavigation, linkSearch, linksSomewhere, NAV_KEY, readLink, resolveLink, slugOf, type AppLink, type CreateDraft, type LinkNote } from "./lib/deepLink.ts";
+import { fileFromLink, isNavigation, linkSearch, linksSomewhere, NAV_KEY, readLink, resolveLink, slugOf, type AppLink, type LinkNote } from "./lib/deepLink.ts";
 import { copyText } from "./lib/clipboard.ts";
 import { CommandPalette } from "./components/CommandPalette.tsx";
-import { paletteOpenQuery } from "./lib/paletteSeed.ts";
 import { MachineContext } from "./lib/machineContext.tsx";
 import { MachineActionBanner, MachineSidebar } from "./components/MachineSidebar.tsx";
 import { SidebarResizer } from "./components/SidebarResizer.tsx";
 import { receiveSeen } from "./lib/seenFinishes.ts";
 import { useSidebarActivityState } from "./lib/sidebarActivity.tsx";
 import { FilePanelResizer } from "./components/FilePanelResizer.tsx";
-import { openPresentation, type FilePresentation } from "./lib/filePresentation.ts";
+import { openPresentation } from "./lib/filePresentation.ts";
 import { MachineDialog } from "./components/MachineDialog.tsx";
 import { RowMenu, type RowMenuItem } from "./components/RowMenu.tsx";
-import { focusWorkspaceListToggle } from "./lib/focus.ts";
 import { headerCrumb, showsChat } from "./lib/headerCrumb.ts";
-import { LOCAL_MACHINE, paneStorageId, type Machine, type MachineEvent } from "../shared/machines.ts";
+import { paneStorageId, type Machine, type MachineEvent } from "../shared/machines.ts";
 import { takeAuthTokenFromUrl } from "./lib/authLink.ts";
 import { applyPaneStatus } from "./lib/snapshot.ts";
 import { setAgentRowTokens } from "./lib/agentRowTokens.ts";
@@ -68,12 +64,14 @@ import { FilesDialog } from "./components/FilesDialog.tsx";
 import { folderQueryFor } from "./lib/paletteFolders.ts";
 import { FileViewer } from "./components/FileViewer.tsx";
 import { WebPanel } from "./components/WebPanel.tsx";
-import { panelUrl, WebPanelContext, wantsPanel } from "./lib/webPanel.ts";
+import { WebPanelContext } from "./lib/webPanel.ts";
 import { RepoDiffViewer } from "./components/RepoDiffViewer.tsx";
 import { OpenFileContext } from "./lib/filePaths.ts";
-import { useFileViewer } from "./lib/useFileViewer.ts";
-import { useFocusReturn } from "./lib/useFocusTrap.ts";
-import { useRepoDiffViewer } from "./lib/useRepoDiffViewer.ts";
+import { useMachineDialog } from "./lib/useMachineDialog.ts";
+import { useNewSessionMachine, useNewSessionState, useSessionHistoryList } from "./lib/useNewSessionDialog.ts";
+import { useCommandPalette } from "./lib/useCommandPalette.ts";
+import { useFilePanels } from "./lib/useFilePanels.ts";
+import { usePaneCoverage } from "./lib/usePaneCoverage.ts";
 import { useT } from "./lib/i18n.ts";
 import { useConnectionChip, useServerMessageHandler } from "./lib/useConnectionChip.ts";
 import { markSelection, selectionStill, type SelectionMark } from "./lib/selectionMark.ts";
@@ -243,17 +241,8 @@ export function App() {
   const snapshot = selectedMachine?.snapshot ?? null;
   const machinesRef = useRef(machines); machinesRef.current = machines;
   const [updateRemote, setUpdateRemote] = useState(false);
-  const [machineDialog, setMachineDialog] = useState<Machine | "new" | null>(null);
-  // Add PC from Settings or the palette leaves no trigger to return focus to once its dialog
-  // closes (Settings closed when it opened): the header's workspace-list toggle stands in
-  const addPcFocusReturn = useRef(false);
-  const closeMachineDialog = useCallback(() => {
-    setMachineDialog(null);
-    if (!addPcFocusReturn.current) return;
-    addPcFocusReturn.current = false;
-    focusWorkspaceListToggle();
-  }, []);
-  const [newSessionMachineId, setNewSessionMachineId] = useState("local");
+  const { machineDialog, setMachineDialog, addPcFocusReturn, closeMachineDialog } = useMachineDialog();
+  const { newSessionMachineId, setNewSessionMachineId } = useNewSessionMachine();
   // this PC's health reads (lib/healthPresentation.ts): its newest answer is what its herdr can do,
   // the failed reads since then only change what the header says
   const healthBook = useRef<HealthBook<HealthInfo>>(new Map());
@@ -392,9 +381,7 @@ export function App() {
   const paneAreaRef = useRef<HTMLDivElement>(null);
   // a tab dragged out of its strip (lib/paneDrag.ts)
   const tabDrag = useSyncExternalStore(paneDrag.subscribe, paneDrag.snapshot);
-  const [paletteOpen, setPaletteOpen] = useState(false);
-  const [paletteQuery, setPaletteQuery] = useState("");
-  const openPalette = useCallback((query?: unknown) => { setPaletteQuery(paletteOpenQuery(query)); setPaletteOpen(true); }, []);
+  const { paletteOpen, paletteQuery, openPalette, setPaletteOpen } = useCommandPalette();
   const paneControls = useRef<PaneControls | null>(null);
   const [findRequest, setFindRequest] = useState<{ paneId: string | null; serial: number }>({ paneId: null, serial: 0 });
   // the header's More menu: its button
@@ -402,77 +389,9 @@ export function App() {
   const closeMore = useCallback(() => setMore(null), []);
   // the pane canvas's actions, for the phone's tab menu (TabStrip)
   const paneActionsRef = useRef<((target: HerdrPane) => RowMenuItem[]) | null>(null);
-  // the Files dialog, and the file open in the viewer (a path as the chat or the dialog gave it)
-  const [filesOpen, setFilesOpen] = useState(false);
-  const { viewing, openFile, closeFile, setPresentation, releaseFile } = useFileViewer();
-  // a repository diff from the Files dialog's Changes tab, an entry of its own like a file
-  const { viewing: diffViewing, openDiff, closeDiff, releaseDiff } = useRepoDiffViewer();
-  const presentation = viewing?.presentation ?? openPresentation(viewing?.path ?? "", settings.fileOpen);
-  const fileDocked = filePanelAvailable && presentation === "panel";
-  useEffect(() => {
-    if (viewing !== null && fileDocked) setFilesOpen(false);
-  }, [viewing, fileDocked]);
-  // a page this PC serves, beside the pane in the file panel's place: a file docked there replaces it
-  const [webPage, setWebPage] = useState<string | null>(null);
-  useEffect(() => {
-    if (viewing !== null && fileDocked) setWebPage(null);
-  }, [viewing, fileDocked]);
-  const openWebPage = useCallback((uri: string, shiftKey: boolean, machineId: string) => {
-    if (machineId !== LOCAL_MACHINE || !wantsPanel(settings.webLinks, shiftKey)) return false;
-    const url = panelUrl(uri, window.location);
-    if (url === null) return false;
-    if (viewing !== null && fileDocked) closeFile();
-    setWebPage(url);
-    return true;
-  }, [settings.webLinks, viewing, fileDocked, closeFile]);
-  // the panel is no dialog, so no trap gives the focus back when it closes: what opened the file
-  // (a link in the chat, a row of Files) gets it, as it does from the popup
-  useFocusReturn(viewing !== null && fileDocked);
-  // a collapse (below) whose two steps back have not landed: a second click on Show beside the
-  // pane, or the kind correction in the same moment, must not queue two steps more and the file twice
-  const collapsing = useRef(false);
-  // a collapse whose step back never lands must not lock the toggle once the file and diff are gone
-  useEffect(() => { if (viewing === null && diffViewing === null) collapsing.current = false; }, [viewing, diffViewing]);
-  const presentFile = useCallback((next: FilePresentation) => {
-    if (collapsing.current) return;
-    if (next === "panel" && filePanelAvailable && diffViewing !== null && viewing !== null) {
-      // Collapse the stacked diff and popup to one panel entry. Pushing from their opener
-      // also discards the old forward entries, so Forward cannot resurrect the popup or diff.
-      const preview = { ...viewing, presentation: next };
-      collapsing.current = true;
-      window.addEventListener("popstate", () => {
-        collapsing.current = false;
-        releaseDiff();
-        openFile(preview);
-      }, { once: true });
-      window.history.go(-2);
-    } else setPresentation(next);
-  }, [filePanelAvailable, diffViewing, viewing, releaseDiff, openFile, setPresentation]);
-  // the kind corrects a guess from the extension; with files set to open in the popup there is no guess to correct
-  const reportFileKind = useCallback((kind: FilePresentation) => {
-    const wanted = settings.fileOpen === "panel" ? kind : "popup";
-    if (viewing !== null && viewing.presentation === undefined && wanted !== openPresentation(viewing.path, settings.fileOpen)) presentFile(wanted);
-  }, [viewing, presentFile, settings.fileOpen]);
-  const toggleFilePresentation = filePanelAvailable && viewing !== null
-    ? () => presentFile(fileDocked ? "popup" : "panel")
-    : undefined;
-  const viewFile = useCallback((path: string) => {
-    // the Files dialog would cover the docked panel the file opens in
-    if (filePanelAvailable && openPresentation(path, settings.fileOpen) === "panel") setFilesOpen(false);
-    openFile({ path, paneId: selectedPaneId, machineId: selectedMachineId });
-  }, [openFile, selectedPaneId, selectedMachineId, filePanelAvailable, settings.fileOpen]);
+  const { filesOpen, setFilesOpen, viewing, openFile, closeFile, releaseFile, diffViewing, openDiff, closeDiff, releaseDiff, presentation, fileDocked, webPage, setWebPage, openWebPage, reportFileKind, toggleFilePresentation, viewFile } = useFilePanels({ settings, filePanelAvailable, selectedPaneId, selectedMachineId });
   const { settingsOpen, setSettingsOpen, settingsLinkPage, setSettingsLinkPage, settingsLinkSection, settingsPage, settingsSection, setSettingsSection, closeSettings, onSettingsPage } = useSettingsDialog(initialLink);
-  const [newSessionOpen, setNewSessionOpen] = useState(false);
-  // the New workspace dialog in the address (lib/deepLink.ts): the fields a link filled for this
-  // opening, and what the fields say now
-  const [newPrefill, setNewPrefill] = useState<Omit<CreateDraft, "kind"> | null>(null);
-  const [newFields, setNewFields] = useState<Omit<CreateDraft, "kind"> | null>(null);
-  // a link to the dialog, opened once the PCs are in (a tab, once its workspace is found)
-  const pendingCreate = useRef<CreateDraft | null>(initialLink?.create ?? null);
-  // the dialog makes a tab in this workspace instead of a workspace, while set
-  const [newTab, setNewTab] = useState<NewTabTarget | null>(null);
-  // the earlier sessions of a workspace's folder (components/SessionHistory.tsx), while open
-  const [sessionHistory, setSessionHistory] = useState<{ machineId: string; workspaceId: string; agent: SessionHistoryAgent; paneId: string | null; askingPaneId: string | null; selectedPaneId: string | null } | null>(null);
+  const { newSessionOpen, setNewSessionOpen, newPrefill, setNewPrefill, newFields, setNewFields, pendingCreate, newTab, setNewTab, sessionHistory, setSessionHistory } = useNewSessionState({ initialLink });
   const { connected, setConnected, connectedBefore, setConnectedBefore, paneLost, outputStopped, setOutputStopped } = useConnectionChip();
   const { notifications, setNotifications, pushOn, setPushOn, pushOnRef } = useNotificationState();
   // the shared settings and pins, the same in every browser of this server, once the app is in
@@ -863,20 +782,7 @@ export function App() {
   if (notificationView !== null && !(notificationView === "chat" && selectedPane !== null && selectedAgent === null)) view = notificationView;
 
   const contentKey = paneContentKey(selectedMachine, selectedPane, view);
-  // App-owned coverage, plus dialogs/menus mounted by descendants (rename, worktree, lightbox,
-  // confirmations). A desktop popup counts as covered too; docked file/web panels do not.
-  const [dialogCover, setDialogCover] = useState(false);
-  const [contentReady, setContentReady] = useState(false);
-  useEffect(() => {
-    const update = () => {
-      setDialogCover(paneCovered());
-      setContentReady(paneContentPresented(contentKey));
-    };
-    const observer = new MutationObserver(update);
-    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["open", "role", "aria-modal", "data-pane-content", "hidden", "inert", "aria-hidden", "class"] });
-    update();
-    return () => observer.disconnect();
-  }, [contentKey]);
+  const { dialogCover, contentReady } = usePaneCoverage({ contentKey });
   const paneInFront = useCallback(() => locked === false && linkLanded && pendingFile.current === null && pendingCreate.current === null
     && !drawerOpen && !settingsOpen && !newSessionOpen
     && !filesOpen && !machineDialog && !paletteOpen && !diffViewing && !(viewing && !fileDocked)
@@ -1349,22 +1255,7 @@ export function App() {
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
-  const closeNewSession = useCallback(() => { setNewSessionOpen(false); setNewPrefill(null); setNewFields(null); }, []);
-  const closeSessionHistory = useCallback(() => setSessionHistory(null), []);
-  // the Resumes of a moment ago, kept across the list's openings until herdr reports their panes' sessions
-  const { standing: recentResumes, remember: rememberResume } = useRecentResumes(machines);
-  // the PCs' states are owned here: a PC away loses its cached answer to whether it lists sessions,
-  // whether or not a pane or menu of it is mounted, so it is asked again once it is back
-  useEffect(() => { forgetSessionHistoryProbesOfPcsAway(machines); }, [machines]);
-  // the workspace the open session list is of, as its PC's roster has it now; the list leaves with the workspace
-  const sessionHistoryWorkspace = useMemo(() => {
-    if (sessionHistory === null) return null;
-    const roster = machines.find((m) => m.id === sessionHistory.machineId)?.snapshot;
-    const workspace = roster?.workspaces.find((candidate) => candidate.workspace_id === sessionHistory.workspaceId);
-    const tabNumber = (tabId: string) => roster?.tabs.find((tab) => tab.tab_id === tabId)?.number ?? Number.MAX_SAFE_INTEGER;
-    return roster && workspace ? { workspace, panes: [...roster.panes].sort((one, other) => tabNumber(one.tab_id) - tabNumber(other.tab_id)) } : null;
-  }, [machines, sessionHistory]);
-  useEffect(() => { if (sessionHistory !== null && sessionHistoryWorkspace === null) setSessionHistory(null); }, [sessionHistory, sessionHistoryWorkspace]);
+  const { closeNewSession, closeSessionHistory, recentResumes, rememberResume, sessionHistoryWorkspace } = useSessionHistoryList({ machines, sessionHistory, setSessionHistory, setNewSessionOpen, setNewPrefill, setNewFields });
 
   // the palette's shortcut, said beside its item where a hardware keyboard is likely (a fine pointer)
   const keyboardLikely = useMediaQuery("(hover: hover) and (pointer: fine)");
