@@ -115,6 +115,7 @@ describe("AgentSidebar phone sheet live row", () => {
     // When the pane no longer reports any tokens.
     await update(roster({}));
     // Then the open sheet has no stale detail.
+    expect(mounted.root.findAllByProps({ role: "dialog" })).toHaveLength(1);
     expect(mounted.root.findAllByProps({ className: "row-sheet-detail" })).toHaveLength(0);
   });
 
@@ -123,18 +124,39 @@ describe("AgentSidebar phone sheet live row", () => {
     // When the live sidebar configuration hides the current quota.
     await act(async () => { setAgentRowTokens({ rows: [{ name: "quota", rules: [{ equals: "95%", hide: true }] }], by_agent: {} }); });
     // Then the open sheet follows the same visibility rule as its row.
+    expect(mounted.root.findAllByProps({ role: "dialog" })).toHaveLength(1);
     expect(mounted.root.findAllByProps({ className: "row-sheet-detail" })).toHaveLength(0);
   });
 
-  it("closes the sheet when its PC disconnects with a cached roster", async () => {
-    const { mounted, row, update } = await open();
-    // When the PC disconnects but retains its snapshot.
-    await update(roster().map((machine) => ({ ...machine, state: "disconnected" })));
-    // Then the row remains available but its sheet is closed.
-    expect(row().findByProps({ className: "agent-select agent-row" }).props.disabled).toBe(true);
-    expect(mounted.root.findAllByProps({ role: "dialog" })).toHaveLength(0);
-    expect(row().findByProps({ className: "sidebar-row-action row-menu-toggle" }).props["aria-expanded"]).toBe(false);
-  });
+  for (const state of ["connecting", "reconnecting"] as const) {
+    it(`keeps the sheet open when its PC briefly enters ${state} then recovers`, async () => {
+      // Given an open sheet whose row and anchor will remain present.
+      const { mounted, row, update } = await open();
+      // When a transient connection state is followed by a recovered roster.
+      await update(roster().map((machine) => ({ ...machine, state })));
+      expect(mounted.root.findAllByProps({ role: "dialog" })).toHaveLength(1);
+      expect(row().findByProps({ className: "sidebar-row-action row-menu-toggle" }).props["aria-expanded"]).toBe(true);
+      expect(row().findAllByProps({ className: "agent-tokens" })).toHaveLength(0);
+      expect(mounted.root.findAllByProps({ className: "row-sheet-detail" })).toHaveLength(0);
+      await update(roster({ quota: "40%" }));
+      // Then the same open sheet resumes showing the row's current values.
+      expect(mounted.root.findAllByProps({ role: "dialog" })).toHaveLength(1);
+      expect(mounted.root.findByProps({ className: "row-sheet-detail" }).children).toEqual(["40%"]);
+    });
+  }
+
+  for (const state of ["disconnected", "error"] as const) {
+    it(`closes the sheet when its PC enters ${state} with a cached roster`, async () => {
+      // Given an open sheet and a cached row.
+      const { mounted, row, update } = await open();
+      // When the PC reaches a terminal connection state but retains its snapshot.
+      await update(roster().map((machine) => ({ ...machine, state })));
+      // Then the row remains available but its sheet is closed.
+      expect(row().findByProps({ className: "agent-select agent-row" }).props.disabled).toBe(true);
+      expect(mounted.root.findAllByProps({ role: "dialog" })).toHaveLength(0);
+      expect(row().findByProps({ className: "sidebar-row-action row-menu-toggle" }).props["aria-expanded"]).toBe(false);
+    });
+  }
 
   it("keeps the sheet closed when a disconnected PC reconnects", async () => {
     const { mounted, update } = await open();

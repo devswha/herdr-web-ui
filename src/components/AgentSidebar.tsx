@@ -121,8 +121,8 @@ export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stat
   }, [pinned]);
   const [menu, setMenu] = useState<PinMenu | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
-  const menuRow = menu === null ? undefined : rows.find(({ machine, entry }) => machine.state === "connected" && sidebarPinKey(machine.id, entry.pane.pane_id) === menu.key);
-  // a row that left the list, or whose PC disconnected, takes its menu with it
+  const menuRow = menu === null ? undefined : rows.find(({ machine, entry }) => machine.state !== "disconnected" && machine.state !== "error" && sidebarPinKey(machine.id, entry.pane.pane_id) === menu.key);
+  // a row that left the list or whose PC stopped connecting takes its menu with it; a retry keeps it
   useEffect(() => {
     if (menu && (menuRow === undefined || !menu.anchor.isConnected)) setMenu(null);
   }, [menu, menuRow]);
