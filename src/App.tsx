@@ -1,10 +1,10 @@
 import { type CSSProperties, type DragEvent, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Bell, Ellipsis, FolderOpen, Link, Menu, MessageSquare, PanelLeft, Search, SquareTerminal, X } from "lucide-react";
 
-import type { AccessRefusal, HealthAuth, HerdrPane } from "../shared/protocol.ts";
-import { ApiError, authenticate, createTab, fetchHealth, fetchBridgeHealth, fetchMachines, fetchSession, pairDevice, shareSeen, signOut, splitPane, verifySourceBoot, zoomPane, type HealthInfo } from "./lib/api.ts";
+import type { HerdrPane } from "../shared/protocol.ts";
+import { ApiError, authenticate, createTab, fetchHealth, fetchMachines, fetchSession, pairDevice, shareSeen, signOut, splitPane, verifySourceBoot, zoomPane, type HealthInfo } from "./lib/api.ts";
 import { applyHealthRead, healthFreshness, machineHealth, type HealthBook } from "./lib/healthPresentation.ts";
-import { deviceLabel, takePairCode } from "./lib/phone.ts";
+import { deviceLabel } from "./lib/phone.ts";
 import { displayPaneTitle } from "./components/Sidebar.tsx";
 import { PaneCanvas } from "./components/PaneCanvas.tsx";
 import { MachineSessionsProvider } from "./lib/machineSessionContext.tsx";
@@ -67,6 +67,7 @@ import { WebPanel } from "./components/WebPanel.tsx";
 import { WebPanelContext } from "./lib/webPanel.ts";
 import { RepoDiffViewer } from "./components/RepoDiffViewer.tsx";
 import { OpenFileContext } from "./lib/filePaths.ts";
+import { useAccessState, useLockedRef } from "./lib/useAccess.ts";
 import { useMachineDialog } from "./lib/useMachineDialog.ts";
 import { useNewSessionMachine, useNewSessionState, useSessionHistoryList } from "./lib/useNewSessionDialog.ts";
 import { useCommandPalette } from "./lib/useCommandPalette.ts";
@@ -254,17 +255,7 @@ export function App() {
   const shownHealth = localFreshness === "unavailable" ? null : health;
   const [error, setError] = useState<string | null>(null);
   const { layoutNotice, setLayoutNotice } = useLayoutNotice();
-  // null until the server has said whether it wants a token: the shell, and with it
-  // the WebSocket, never mounts before that is known
-  const [locked, setLocked] = useState<boolean | null>(null);
-  const [lockReason, setLockReason] = useState<AccessRefusal | null>(null);
-  /** the code a scanned QR brought along (`?pair=CODE`), taken off the address at once */
-  const [pairCode] = useState(() => takePairCode());
-  const [auth, setAuth] = useState<HealthAuth | null>(null);
-  // a token a proxy sends with every request comes back right after signing out: signing out is the proxy's
-  const canSignOut = auth?.authenticated === true && (auth.via === "device" || (auth.via === "token" && auth.bearer !== true));
-  // a device that is in only because nothing is paired yet still pairs from the QR code's address
-  const pairedFromAddress = useRef(false);
+  const { locked, setLocked, lockReason, pairCode, auth, canSignOut, pairedFromAddress, readBridgeHealth } = useAccessState();
   useEffect(() => {
     if (locked !== false || pairCode === "" || pairedFromAddress.current || auth?.via === "device") return;
     pairedFromAddress.current = true;
@@ -400,8 +391,7 @@ export function App() {
   const preferencesResubscribedRef = useRef(preferencesResubscribed); preferencesResubscribedRef.current = preferencesResubscribed;
   const preferencesDisconnectedRef = useRef(preferencesDisconnected); preferencesDisconnectedRef.current = preferencesDisconnected;
   const preferencesClosedRef = useRef(preferencesClosed); preferencesClosedRef.current = preferencesClosed;
-  const lockedRef = useRef(locked);
-  lockedRef.current = locked;
+  const { lockedRef } = useLockedRef({ locked });
   const { statusRef, turnStartRef, lastTurnRef, alertInAppRef, alertSoundRef } = useAlertRefs({ settings });
   const followFocusRef = useRef(settings.followHerdrFocus);
   followFocusRef.current = settings.followHerdrFocus;
@@ -410,8 +400,7 @@ export function App() {
   snapshotRef.current = snapshot;
 
   const loadHealth = useCallback(async () => {
-    try { const next = await fetchBridgeHealth(); setLocked(next.auth.required && !next.auth.authenticated); setLockReason(next.auth.reason ?? null); setAuth(next.auth); }
-    catch { /* retain the gate while the connection server restarts */ }
+    await readBridgeHealth();
     const read = ++healthReads.current;
     const answer = await fetchHealth().then((value) => ({ ok: true, value }) as const, () => ({ ok: false }) as const);
     const book = applyHealthRead(healthBook.current, "local", read, answer);
