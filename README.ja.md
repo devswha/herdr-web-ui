@@ -1,5 +1,7 @@
 # Ovis
 
+Ovis は herdr のためのブラウザとスマートフォンのクライアントです。
+
 <p align="center">
   <img src="public/icons/icon-192.png" alt="Ovis" width="100">
 </p>

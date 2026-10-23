@@ -1,5 +1,7 @@
 # Ovis
 
+Ovis，herdr 的浏览器和手机客户端。
+
 <p align="center">
   <img src="public/icons/icon-192.png" alt="Ovis" width="100">
 </p>

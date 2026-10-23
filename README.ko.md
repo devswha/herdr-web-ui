@@ -1,5 +1,7 @@
 # Ovis
 
+Ovis는 herdr를 위한 브라우저·휴대폰 클라이언트입니다.
+
 <p align="center">
   <img src="public/icons/icon-192.png" alt="Ovis" width="100">
 </p>
