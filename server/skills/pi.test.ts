@@ -84,7 +84,10 @@ describe("pi's builtins", () => {
       { match: "bare", interaction: "dialog", dialog: "pi-model" },
       { match: { sub: "*" }, interaction: "none" },
     ]);
-    expect(source.forms?.["thinking"]).toEqual(source.forms?.["model"]);
+    expect(source.forms?.["thinking"]).toEqual([
+      { match: "bare", interaction: "dialog", dialog: "pi-thinking" },
+      { match: { sub: "*" }, interaction: "none" },
+    ]);
   });
 
   it("keeps bare logout terminal-bound when OAuth credentials can open its selector", () => {

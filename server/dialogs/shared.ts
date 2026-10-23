@@ -78,6 +78,7 @@ type Responder =
   | "pi-confirm"
   | "pi-input"
   | "pi-model"
+  | "pi-thinking"
   | "omo-model"
   | "omp-model"
   | "hermes-question"
