@@ -16,7 +16,6 @@ import type { HerdrPane, ServerMessage } from "../shared/protocol.ts";
 
 const root = mkdtempSync(join(tmpdir(), "omo-plan-browser-"));
 const evidence = process.env.UI_EVIDENCE_DIR ?? join(root, "evidence");
-mkdirSync(evidence, { recursive: true });
 const quote = (word: string) => `'${word.replaceAll("'", "'\\''")}'`;
 const id = "synthetic-omo-plan-session";
 const store = join(root, "agent");
@@ -81,6 +80,7 @@ try {
   const pane = body.snapshot.panes.find((item) => item.pane_id === paneId);
   assert.equal(pane?.agent, "omo");
   assert.deepEqual(pane.plan, { done: 1, total: 3, current: "Implement OmO plans" });
+  mkdirSync(evidence, { recursive: true });
   writeFileSync(join(evidence, "snapshot-pane.json"), JSON.stringify(pane, null, 2) + "\n");
 
   browser = await chromium.launch({ executablePath: process.env.CHROME_PATH ?? "/opt/google/chrome/chrome", headless: true, args: ["--no-sandbox", "--no-proxy-server"] });
@@ -106,6 +106,7 @@ try {
         const badge = row.getByTestId("plan-progress");
         await badge.waitFor({ state: "visible" });
         assert.equal(await badge.textContent(), "1/3");
+        mkdirSync(evidence, { recursive: true });
         await page.screenshot({ path: join(evidence, `${width}-${theme}-sidebar.png`), fullPage: true });
         await row.locator(".agent-select").click();
         const toggle = page.locator(".bg-tasks-toggle");
@@ -113,6 +114,7 @@ try {
         const panel = page.locator(".bg-tasks-menu");
         await panel.locator(".bg-step.is-in_progress").getByText("Implement OmO plans", { exact: true }).waitFor();
         assert.deepEqual(await panel.locator(".bg-step .bg-task-title").allTextContents(), ["Read the source", "Implement OmO plans", "Run isolated validation"]);
+        mkdirSync(evidence, { recursive: true });
         await page.screenshot({ path: join(evidence, `${width}-${theme}-plan.png`), fullPage: true });
         console.log(`PASS ${width}px ${theme}: sidebar 1/3 and all three plan steps`);
       } finally { await context.close(); }
