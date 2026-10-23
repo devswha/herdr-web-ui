@@ -503,11 +503,13 @@ after changing the staged session. Files, images, push and remote PCs are not pa
    fragments; then add the `by @login` credits; a fragment merged later must be moved into the
    version by hand, since the release workflow refuses while one is left), and tells the release
    in [release-summaries.json](../release-summaries.json) the way a game's patch notes do: under
-   the version, for each language in `SUMMARY_LANGUAGES` (`shared/update.ts`: `en`, `ko`, `ja` and `zh`), the lists `new`, `improved` and `fixed` (a list with nothing to say is left out), each a few lines of
-   plain text, 90 characters at most, the same number of lines in every language. It is what
-   an install shows before and after the update, with the changelog section folded under it,
-   so a line names what changes for the people who use the app and leaves out PR numbers and
-   internals. The unit suite and the release workflow fail without every language.
+   the version, for each language in `SUMMARY_LANGUAGES` (`shared/update.ts`: `en`, `ko`, `ja` and `zh`), the lists `new`, `improved` and `fixed` (a list with nothing to say is left out), the same number of
+   lines in every language. From 0.5.0 the notes are short: at most five lines in a list, each one
+   plain sentence of at most 70 characters in English (about as short in the other languages),
+   naming the change most people will notice first. A change that does not make the cut stays in
+   the changelog section, so no line joins two changes to fit it in. It is what an install shows
+   before and after the update, with the changelog section folded under it, so a line names what
+   changes for the people who use the app and leaves out PR numbers and internals. The unit suite and the release workflow fail without every language.
    The GitHub release is written from the same files by `scripts/release-notes.ts`: the
    English lists under New features, Improvements and Bug fixes, then the version's whole
    changelog section folded under **Full changelog**.
