@@ -15,7 +15,7 @@
  * the environment a new tab inherits exports none either (claude-store.ts herdrLaunchSource).
  */
 import type { SessionHistoryResponse, SessionResumeResponse, SessionSnapshot } from "../shared/protocol.ts";
-import { claudeProcessSession, claudeStoreOf, herdrLaunchSource, isClaudeProcess, paneClaudeSource, type ClaudeSource, type PaneProcess } from "./claude-store.ts";
+import { claudeRecordOnlyIn, claudeStoreOf, herdrLaunchSource, isClaudeProcess, paneClaudeSource, type ClaudeSource, type PaneProcess } from "./claude-store.ts";
 import { agentLaunch } from "./agent-launch.ts";
 import { recentProcessTable } from "./gjc-runtime.ts";
 import { herdrSocketPath, paneProcessInfo, sessionSnapshot, tabClose, tabCreate } from "./herdr/client.ts";
@@ -119,11 +119,11 @@ async function paneStore(paneId: string, options: StoreOptions): Promise<{ store
 
 /**
  * The store the Claude a resume started in `paneId` came up on, once it says one, and whether it
- * writes `listedDir`; null when it says no store within `launchCheckMs`. Only Linux reads a
- * process's environment exactly: elsewhere the store it came up on is read from `ps` text (macOS)
- * or found by its PID record (Windows), so Claude's own live PID record must also be in the listed
- * store's folder, a proof that does not depend on that reading. Claude writes the record as it
- * starts, so it is waited for too.
+ * writes `listedDir`; null when it says no store within `launchCheckMs`. Linux and macOS read a
+ * process's environment exactly (/proc, sysctl). Windows lets no one read it: the store there is
+ * found by Claude's live PID record, which must be in the listed store's folder and in no other
+ * store Claude may use (claude-store.ts claudeRecordOnlyIn: a copy of a store holds the same
+ * record). Claude writes the record as it starts, so it is waited for too.
  */
 async function startedStore(paneId: string, listedDir: string, options: StoreOptions): Promise<{ store: NonNullable<Awaited<ReturnType<typeof paneStore>>>["store"]; writesListed: boolean } | null> {
   const deadline = Date.now() + (options.launchCheckMs ?? 15_000);
@@ -134,8 +134,8 @@ async function startedStore(paneId: string, listedDir: string, options: StoreOpt
     const found = await paneStore(paneId, options);
     if (found?.claude) {
       landed = found;
-      if (platform === "linux") return { store: found.store, writesListed: true };
-      if (found.pid !== null && await claudeProcessSession(home, found.pid, listedDir, platform, options.table ?? recentProcessTable) !== null) return { store: found.store, writesListed: true };
+      if (platform === "linux" || platform === "darwin") return { store: found.store, writesListed: true };
+      if (found.pid !== null && await claudeRecordOnlyIn(home, found.pid, listedDir, platform, options.table ?? recentProcessTable)) return { store: found.store, writesListed: true };
     }
     if (Date.now() >= deadline) return landed === null ? null : { store: landed.store, writesListed: false };
     await Bun.sleep(200);

@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url";
 import type { SessionHistoryAgent, SessionSnapshot } from "../shared/protocol.ts";
 import { HEAD_BYTES, listSessions, MAX_ENTRIES, MAX_ROWS, MAX_STATS, MAX_WALK, SESSION_HISTORY_AGENTS } from "./session-history.ts";
 import { handleSessionHistoryRequest, handleSessionResumeRequest, type PaneProcesses, workspaceFolder } from "./session-history-routes.ts";
-import { claudeProjectDir, forgetClaudeSessions } from "./claude-store.ts";
+import { claudeProjectDir, darwinProcess, forgetClaudeSessions } from "./claude-store.ts";
 import type { ProcessRow } from "./windows-processes.ts";
 import { codexRolloutPath } from "./codex.ts";
 import rolloutHeaders from "./fixtures/codex-rollout-headers.json";
@@ -1241,48 +1241,33 @@ describe("GET /api/sessions/history", () => {
     });
 
     it("closes a macOS resume whose Claude only looks exported to the listed store, and keeps one that writes there", async () => {
-      // macOS: `ps -E` prints one line, so NOTE="example CLAUDE_CONFIG_DIR=<store>" reads as an export of
-      // <store>. The new Claude's live PID record says where it really writes
+      // macOS: NOTE="example CLAUDE_CONFIG_DIR=<store>" reads as an export in `ps -E`; the environment as the
+      // kernel keeps it (sysctl) says nothing is exported, so that Claude writes ~/.claude
       const home = newHome();
       const alternate = join(home, "alternate-store");
       claudeStore(alternate, ID(1), "alternate store prompt");
-      const LSTART = "Fri Oct  9 09:00:00 2026";
       const SOURCE = 501;
       const STARTED = 502;
-      const lines: Record<number, string> = {
-        [SOURCE]: `claude CLAUDE_CONFIG_DIR=${alternate} HOME=${home} PATH=/usr/bin`,
-        [STARTED]: `claude NOTE=example CLAUDE_CONFIG_DIR=${alternate} HOME=${home} PATH=/usr/bin`,
-      };
-      const spawned = spyOn(Bun, "spawn").mockImplementation(((command: string[]) => {
-        const pid = Number(command[command.indexOf("-p") + 1]);
-        const text = command.includes("lstart=") ? LSTART : lines[pid] ?? "";
-        return { stdout: new Response(`${text}\n`).body, exited: Promise.resolve(0), kill: () => {} };
-      }) as unknown as typeof Bun.spawn);
-      const record = (store: string, pid: number) => {
-        mkdirSync(join(store, "sessions"), { recursive: true });
-        writeFileSync(join(store, "sessions", `${pid}.json`), JSON.stringify({ pid, sessionId: ID(1), procStart: LSTART, kind: "interactive" }));
-      };
+      const exported = `PATH=/usr/bin\0CLAUDE_CONFIG_DIR=${alternate}\0HOME=${home}`;
+      const environments: Record<number, string> = { [SOURCE]: exported, [STARTED]: `PATH=/usr/bin\0NOTE=example CLAUDE_CONFIG_DIR=${alternate}\0HOME=${home}` };
+      const environment = spyOn(darwinProcess, "environment").mockImplementation((pid: number) => environments[pid] ?? null);
+      // the live chat's reading stays ps's: it answers nothing here
+      const spawned = spyOn(Bun, "spawn").mockImplementation((() => ({ stdout: new Response("").body, exited: Promise.resolve(0), kill: () => {} })) as unknown as typeof Bun.spawn);
       const paneProcesses = async (paneId: string): Promise<PaneProcesses> => ({ shell_pid: null, foreground_processes: [{ pid: paneId === "p-new" ? STARTED : SOURCE, name: "claude", argv: ["claude"] }] });
       try {
-        record(alternate, SOURCE);
         const base = { stores: { home, env: {} }, snapshot: async () => snapshot(), paneProcesses, launchSource: launchAbsent, platform: "darwin", launchCheckMs: 0 };
         const listed = await (await handleSessionHistoryRequest(...request("workspace_id=w1&agent=claude&pane_id=p1"), { readOnly: false, ...base })).json() as ClaudeListing;
         const valid = { workspace_id: "w1", pane_id: "p1", agent: "claude", session_id: ID(1), store_key: listed.sessions[0]!.resume!.source!.store_key };
-        // the started Claude writes ~/.claude: its tab is closed, never answered as resumed
-        record(join(home, ".claude"), STARTED);
-        forgetClaudeSessions();
         const closed: string[] = [];
         const [status, json] = await answer(await resume(valid, { ...base, tabs: fakeTabs(closed) }));
-        expect([status, json.action, closed]).toEqual([409, undefined, ["t-new"]]);
-        // the control: the same line from a Claude that does write the listed store is kept
-        rmSync(join(home, ".claude", "sessions"), { recursive: true, force: true });
-        record(alternate, STARTED);
-        lines[STARTED] = lines[SOURCE]!;
+        expect([status, json.error?.code, closed]).toEqual([409, "launch_store_changed", ["t-new"]]);
+        // the control: a Claude the store really is exported to is kept
+        environments[STARTED] = exported;
         forgetClaudeSessions();
         const kept: string[] = [];
         expect(await answer(await resume(valid, { ...base, tabs: fakeTabs(kept) }))).toEqual([200, { action: "created", workspace_id: "w1", pane_id: "p-new", agent_started: true }] as never);
         expect(kept).toEqual([]);
-      } finally { spawned.mockRestore(); forgetClaudeSessions(); }
+      } finally { environment.mockRestore(); spawned.mockRestore(); forgetClaudeSessions(); }
     });
   });
 
@@ -1345,14 +1330,14 @@ describe("GET /api/sessions/history", () => {
         start: async () => ({ agent_started: true as const }),
         close: async (tabId: string) => { closed.push(tabId); },
       });
-      const outcome = async (recordedIn: string) => {
+      const outcome = async (recordedIn: string | readonly string[]) => {
         const home = newHome();
         claudeStore(join(home, ".claude"), ID(1), "default store prompt");
         claudeStore(join(home, ".claude-second"), ID(1), "second store prompt");
         const base = { stores: { home, env: {} }, snapshot: async () => snapshot(), paneProcesses, launchSource: launchAbsent, platform: "win32", table: rows, launchCheckMs: 0 };
         const listed = await (await handleSessionHistoryRequest(...request("workspace_id=w1&agent=claude&pane_id=p1"), { readOnly: false, ...base })).json() as ClaudeListing;
         expect(listed.sessions.map((row) => row.firstMessage)).toEqual(["default store prompt"]);
-        record(join(home, recordedIn));
+        for (const store of typeof recordedIn === "string" ? [recordedIn] : recordedIn) record(join(home, store));
         forgetClaudeSessions();
         const closed: string[] = [];
         const response = await handleSessionResumeRequest(new Request("http://localhost/api/sessions/resume", { method: "POST", body: JSON.stringify({ workspace_id: "w1", pane_id: "p1", agent: "claude", session_id: ID(1), store_key: listed.sessions[0]!.resume!.source!.store_key }) }), { readOnly: false, ...base, tabs: tabs(closed) });
@@ -1361,6 +1346,8 @@ describe("GET /api/sessions/history", () => {
       };
       expect(await outcome(".claude")).toEqual([200, "created", []]);
       expect(await outcome(".claude-second")).toEqual([409, "launch_store_changed", ["t-new"]]);
+      // the new Claude's live record in two stores (one copied while it ran): which one it writes cannot be told
+      expect(await outcome([".claude", ".claude-second"])).toEqual([409, "launch_store_unknown", ["t-new"]]);
     });
 
     it("tells no store when the process table says nothing", async () => {

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, win32 } from "node:path";
-import { AmbiguousClaudeStore, claudeForegroundSession, claudeProcessSession, claudeSessionTempDir, claudeStoreKey, claudeStoreOf, claudeProjectDir, claudeTranscriptFile, configDirInPsLine, forgetClaudeSessions, herdrLaunchSource, isClaudeProcess, paneClaudeSource, processClaudeConfigDir, processClaudeSource, type ClaudeSource } from "./claude-store.ts";
+import { AmbiguousClaudeStore, claudeForegroundSession, claudeProcessSession, claudeSessionTempDir, claudeStoreKey, claudeStoreOf, claudeProjectDir, claudeTranscriptFile, claudeRecordOnlyIn, configDirInPsLine, darwinProcess, forgetClaudeSessions, herdrLaunchSource, isClaudeProcess, paneClaudeSource, processClaudeConfigDir, processClaudeSource, procArgsEnvironment } from "./claude-store.ts";
 import type { ProcessRow } from "./windows-processes.ts";
 
 const NATIVE = process.platform === "linux" || process.platform === "darwin";
@@ -380,56 +380,45 @@ describe("a Claude process's store source", () => {
 
   it.skipIf(!NATIVE)("reads an exported store, an empty export and none exported as three sources", async () => {
     const store = tempDir();
-    // macOS's ps cannot bound an exported value (below): there only none exported is a proof
-    const exported = (dir: string): ClaudeSource => process.platform === "darwin" ? { state: "unreadable" } : { state: "override", dir };
-    expect(await processClaudeSource(await standIn({ CLAUDE_CONFIG_DIR: store }))).toEqual(exported(store));
-    expect(await processClaudeSource(await standIn({ CLAUDE_CONFIG_DIR: "" }))).toEqual(exported(""));
+    expect(await processClaudeSource(await standIn({ CLAUDE_CONFIG_DIR: store }))).toEqual({ state: "override", dir: store });
+    expect(await processClaudeSource(await standIn({ CLAUDE_CONFIG_DIR: "" }))).toEqual({ state: "override", dir: "" });
     expect(await processClaudeSource(await standIn({}))).toEqual({ state: "absent" });
+    // the same text inside another variable's value is that variable's, not an export
+    expect(await processClaudeSource(await standIn({ NOTE: `example CLAUDE_CONFIG_DIR=${store}` }))).toEqual({ state: "absent" });
   });
 
-  it("macOS ps output proves an exported store only past herdr's argv, once, and where the process's live PID record is", async () => {
+  it("reads the environment in a KERN_PROCARGS2 answer whole", () => {
+    // argc, the executable's path and its padding, the arguments, then the environment, each NUL-terminated
+    const answer = (argc: number, words: string[]) => {
+      const count = Buffer.alloc(4);
+      count.writeInt32LE(argc);
+      return new Uint8Array(Buffer.concat([count, Buffer.from("/usr/local/bin/claude\0\0\0\0"), ...words.map((word) => Buffer.from(`${word}\0`))]));
+    };
+    const lookalike = "NOTE=example CLAUDE_CONFIG_DIR=/Users/u/.claude-work";
+    expect(procArgsEnvironment(answer(2, ["claude", "--resume", "PATH=/usr/bin", lookalike, "", "junk"]))).toEqual(["PATH=/usr/bin", lookalike]);
+    // an argument naming the variable stays an argument
+    expect(procArgsEnvironment(answer(2, ["claude", "CLAUDE_CONFIG_DIR=/x", "HOME=/Users/u"]))).toEqual(["HOME=/Users/u"]);
+    // cut short: fewer arguments than argc, or an entry with no end
+    expect(procArgsEnvironment(answer(3, ["claude"]))).toBeNull();
+    expect(procArgsEnvironment(new Uint8Array([1, 0, 0, 0, 0x2f, 0x62, 0]).subarray(0, 6))).toBeNull();
+  });
+
+  it("macOS reads the environment as the kernel keeps it: another value's text is no export", async () => {
     const store = tempDir();
     const home = tempDir();
-    const fallback = join(home, ".claude");
-    // ps prints arguments and environment as one line: herdr's argv says where the arguments end, and
-    // Claude's live PID record (sessions/<pid>.json, its start as ps lstart prints it) says which store it writes
-    const LSTART = "Fri Oct  9 09:00:00 2026";
-    const lines: string[] = [];
-    const spawned = spyOn(Bun, "spawn").mockImplementation(((command: string[]) => {
-      expect(command[0]).toBe("/bin/ps");
-      const text = command.includes("lstart=") ? `${LSTART}\n` : lines.shift();
-      return { stdout: new Response(text).body, exited: Promise.resolve(0), kill: () => {} };
-    }) as unknown as typeof Bun.spawn);
-    const recordIn = (dir: string | null) => {
-      for (const each of [store, fallback]) rmSync(join(each, "sessions"), { recursive: true, force: true });
-      if (dir === null) return;
-      mkdirSync(join(dir, "sessions"), { recursive: true });
-      writeFileSync(join(dir, "sessions", "4242.json"), JSON.stringify({ pid: 4242, sessionId: SESSION, procStart: LSTART, kind: "interactive" }));
-    };
+    const environments: (string | null)[] = [];
+    const environment = spyOn(darwinProcess, "environment").mockImplementation(() => environments.shift() ?? null);
+    // the live chat's reading stays ps's: it answers nothing here
+    const spawned = spyOn(Bun, "spawn").mockImplementation((() => ({ stdout: new Response("").body, exited: Promise.resolve(0), kill: () => {} })) as unknown as typeof Bun.spawn);
     try {
-      const read = async (line: string, argv = ["claude"], recorded: string | null = store) => { forgetClaudeSessions(); recordIn(recorded); lines.push(`${line}\n`); return processClaudeSource(4242, argv, home, "darwin"); };
-      // the usual case, a store exported to plain `claude` that holds its record: that store
-      expect(await read(`claude CLAUDE_CONFIG_DIR=${store} HOME=${home} PATH=/usr/bin`)).toEqual({ state: "override", dir: store });
-      expect(await read(`claude HOME=${home} PATH=/usr/bin CLAUDE_CONFIG_DIR=${store}`)).toEqual({ state: "override", dir: store });
-      // the same text inside another variable's value (NOTE="example CLAUDE_CONFIG_DIR=<store>") reads alike;
-      // the record is in ~/.claude, so that Claude writes there: no proof of the store the text names
-      expect(await read(`claude NOTE=example CLAUDE_CONFIG_DIR=${store} HOME=${home} PATH=/usr/bin`, ["claude"], fallback)).toEqual({ state: "unreadable" });
-      // no record anywhere yet: no proof either
-      expect(await read(`claude CLAUDE_CONFIG_DIR=${store} HOME=${home} PATH=/usr/bin`, ["claude"], null)).toEqual({ state: "unreadable" });
-      // the lookalike naming ~/.claude, where a Claude with nothing exported writes its record too: the
-      // record cannot tell an export from text inside another value, so no proof; nor of an empty export
-      expect(await read(`claude NOTE=example CLAUDE_CONFIG_DIR=${fallback} HOME=${home} PATH=/usr/bin`, ["claude"], fallback)).toEqual({ state: "unreadable" });
-      expect(await read(`claude CLAUDE_CONFIG_DIR= HOME=${home} PATH=/usr/bin`, ["claude"], fallback)).toEqual({ state: "unreadable" });
-      // an argument naming the variable is an argument, not an assignment
-      expect(await read(`claude --settings CLAUDE_CONFIG_DIR=${store} HOME=${home} PATH=/usr/bin`, ["claude", "--settings", `CLAUDE_CONFIG_DIR=${store}`])).toEqual({ state: "absent" });
-      // a line that does not start with herdr's argv, two assignments, or a value naming no directory: no proof
-      expect(await read(`node cli.js CLAUDE_CONFIG_DIR=${store} HOME=${home} PATH=/usr/bin`)).toEqual({ state: "unreadable" });
-      expect(await read(`claude CLAUDE_CONFIG_DIR=${store} HOME=${home} CLAUDE_CONFIG_DIR=${home} PATH=/usr/bin`)).toEqual({ state: "unreadable" });
-      expect(await read(`claude CLAUDE_CONFIG_DIR=${join(store, "missing")} HOME=${home} PATH=/usr/bin`)).toEqual({ state: "unreadable" });
-      // none named anywhere, beside the rest of an environment: none exported; with no environment shown, no proof
-      expect(await read(`claude HOME=${home} PATH=/usr/bin`)).toEqual({ state: "absent" });
-      expect(await read("claude --resume")).toEqual({ state: "unreadable" });
-    } finally { spawned.mockRestore(); }
+      const read = async (environ: string | null) => { forgetClaudeSessions(); environments.push(environ); return processClaudeSource(4242, ["claude"], home, "darwin"); };
+      expect(await read(`PATH=/usr/bin\0CLAUDE_CONFIG_DIR=${store}\0HOME=${home}`)).toEqual({ state: "override", dir: store });
+      expect(await read(`PATH=/usr/bin\0CLAUDE_CONFIG_DIR=\0HOME=${home}`)).toEqual({ state: "override", dir: "" });
+      // NOTE="example CLAUDE_CONFIG_DIR=<store>", which `ps -E` prints as if it were an export: nothing exported
+      expect(await read(`PATH=/usr/bin\0NOTE=example CLAUDE_CONFIG_DIR=${store}\0HOME=${home}`)).toEqual({ state: "absent" });
+      // another user's process, or one gone: no proof
+      expect(await read(null)).toEqual({ state: "unreadable" });
+    } finally { environment.mockRestore(); spawned.mockRestore(); }
   });
 
   it.skipIf(process.platform !== "linux")("herdr's launch source is the environment of the server on its socket", async () => {
@@ -704,6 +693,45 @@ describe("a Windows Claude's store", () => {
     forgetClaudeSessions();
     expect(await processClaudeSource(PID, [CLAUDE_EXE], dir, "win32", table)).toEqual({ state: "ambiguous" });
     expect(await claudeStoreOf({ state: "ambiguous" }, dir, {})).toBeNull();
+  });
+
+  it("takes a store only as the one holder of the live record: a copy made while Claude ran proves neither", async () => {
+    const dir = home();
+    const work = join(dir, ".claude-work");
+    record(work);
+    expect(await claudeRecordOnlyIn(dir, PID, work, "win32", table)).toBe(true);
+    // cp -r ~/.claude-work ~/.claude while it ran: the same live record in both
+    record(join(dir, ".claude"));
+    expect(await claudeRecordOnlyIn(dir, PID, work, "win32", table)).toBe(false);
+    expect(await claudeRecordOnlyIn(dir, PID, join(dir, ".claude"), "win32", table)).toBe(false);
+    expect(await processClaudeSource(PID, [CLAUDE_EXE], dir, "win32", table)).toEqual({ state: "ambiguous" });
+  });
+
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)("takes a record that is there but cannot be read for one that may be live, not for none", async () => {
+    const dir = home();
+    const work = join(dir, ".claude-work");
+    record(work);
+    record(join(dir, ".claude"));
+    const original = join(dir, ".claude", "sessions", `${PID}.json`);
+    chmodSync(original, 0o000);
+    try {
+      expect(await claudeRecordOnlyIn(dir, PID, work, "win32", table)).toBe(false);
+      expect(await processClaudeSource(PID, [CLAUDE_EXE], dir, "win32", table)).toEqual({ state: "ambiguous" });
+    } finally { chmodSync(original, 0o600); }
+  });
+
+  it.skipIf(process.platform === "win32")("takes a record that passes lstat and access but fails to read for one that may be live", async () => {
+    // a link in the record's place: lstat and access see it, the read refuses it (no links followed)
+    const dir = home();
+    const work = join(dir, ".claude-work");
+    record(work);
+    record(join(dir, "elsewhere"));
+    mkdirSync(join(dir, ".claude", "sessions"), { recursive: true });
+    symlinkSync(join(dir, "elsewhere", "sessions", `${PID}.json`), join(dir, ".claude", "sessions", `${PID}.json`));
+    expect(await claudeRecordOnlyIn(dir, PID, work, "win32", table)).toBe(false);
+    expect(await processClaudeSource(PID, [CLAUDE_EXE], dir, "win32", table)).toEqual({ state: "ambiguous" });
+    // the live chat's reading is unchanged: a record it cannot read names no session
+    expect(await claudeProcessSession(dir, PID, join(dir, ".claude"), "win32", table)).toBeNull();
   });
 
   it("looks again after a miss, since Claude writes its record as it starts", async () => {
