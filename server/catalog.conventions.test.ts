@@ -61,6 +61,31 @@ function forbiddenDeclarations(source: string, fileName?: string): string[] {
   return violations;
 }
 
+function forbiddenBoundaryLiterals(source: string, fileName?: string): string[] {
+  const violations: string[] = [];
+  const visit = (node: ts.Node): void => {
+    const text = ts.isStringLiteralLike(node)
+      ? node.text
+      : ts.isTemplateExpression(node)
+        ? node.head.text + node.templateSpans.map((span) => "${}" + span.literal.text).join("")
+        : undefined;
+    if (text !== undefined) {
+      if (
+        text.includes("/tui/") ||
+        ["service.ensure", "turn/start", "thread/resume", "skill.invoke"].some((method) => text.includes(method)) ||
+        /\/api\/session\/[^/]+\/command(?:[/?#]|$)/.test(text) ||
+        // Only the terminal attachment may take over, after an explicit user request.
+        (text.includes("--takeover") && fileName !== "server/core/terminal-process.ts")
+      ) {
+        violations.push(text);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(parse(source, fileName));
+  return violations;
+}
+
 function forbiddenProcessOperations(source: string, fileName?: string): string[] {
   const violations: string[] = [];
   const isProcessModule = (node: ts.Expression | undefined): boolean =>
@@ -192,6 +217,53 @@ describe("agent command catalog conventions", () => {
       expect(forbiddenDeclarations(read(file), file), `${file} declares forbidden catalog state`).toEqual([]);
     }
   }, 60_000);
+
+  it("keeps non-test code inside the agent command boundaries", () => {
+    const candidates = [
+      ...files("server/**/*.{ts,tsx,mjs,js}"),
+      ...files("src/**/*.{ts,tsx,mjs,js}"),
+      ...files("shared/**/*.{ts,tsx,mjs,js}"),
+    ].filter((file) => !/\.(?:test|spec)\.[^.]+$/.test(file));
+    for (const file of candidates) {
+      expect(forbiddenBoundaryLiterals(read(file), file), `${file} contains a forbidden agent command literal`).toEqual([]);
+    }
+  }, 60_000);
+
+  it("finds forbidden boundaries in strings and template literals", () => {
+    for (const literal of [
+      '"/tui/command"',
+      '"service.ensure"',
+      "'turn/start'",
+      "`thread/resume`",
+      "`skill.invoke`",
+      '"/api/session/example/command"',
+      "`/api/session/${id}/command`",
+      "`https://${host}/api/session/${id}/command?sync=true`",
+      "`/tui/${command}`",
+      '"--takeover"',
+    ]) {
+      expect(forbiddenBoundaryLiterals(`const value = ${literal};`), literal).toHaveLength(1);
+    }
+  });
+
+  it("ignores boundary wording in comments and unrelated routes", () => {
+    expect(
+      forbiddenBoundaryLiterals(
+        [
+          '// "/tui/command" "service.ensure" "turn/start" "--takeover"',
+          '/* `thread/resume` "skill.invoke" "/api/session/example/command" */',
+          'const route = "/api/pane/prompt/answer";',
+          'const other = "/api/session/example/commands";',
+        ].join("\n"),
+      ),
+    ).toEqual([]);
+  });
+
+  it("allows takeover only in the user-requested terminal attachment path", () => {
+    const source = 'args.push("--takeover"); const method = "service.ensure";';
+    expect(forbiddenBoundaryLiterals(source, "server/core/terminal-process.ts")).toEqual(["service.ensure"]);
+    expect(forbiddenBoundaryLiterals(source, "server/other.ts")).toEqual(["--takeover", "service.ensure"]);
+  });
 
   it("keeps catalog readers and process metadata free of child processes", () => {
     const candidates = [
