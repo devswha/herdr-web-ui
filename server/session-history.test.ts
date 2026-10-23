@@ -6,7 +6,7 @@ import { dirname, join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { SessionHistoryAgent, SessionSnapshot } from "../shared/protocol.ts";
 import { HEAD_BYTES, listSessions, MAX_ENTRIES, MAX_ROWS, MAX_STATS, MAX_WALK, SESSION_HISTORY_AGENTS } from "./session-history.ts";
-import { handleSessionHistoryRequest, handleSessionResumeRequest, type PaneProcesses, workspaceFolder } from "./session-history-routes.ts";
+import { handleSessionHistoryRequest, handleSessionResumeRequest, type PaneProcesses, RESUME_BUDGET_S, workspaceFolder } from "./session-history-routes.ts";
 import { claudeProjectDir, darwinProcess, forgetClaudeSessions } from "./claude-store.ts";
 import { slowMachinePath } from "./machine-api.ts";
 import type { ProcessRow } from "./windows-processes.ts";
@@ -1241,28 +1241,92 @@ describe("GET /api/sessions/history", () => {
       expect([status, json.error?.code, closed]).toEqual([409, "launch_store_unknown", ["t-new"]]);
     });
 
-    it("gives the store check an idle window of its own after the start, and the PC proxy a budget for both", async () => {
-      // Bun closes a request idle for its timeout: the start (up to about 70 s) and the store check that
-      // follows (up to launchCheckMs) each get a fresh window, so the window is restarted between them
+    it("holds a resume's request open past the server's first idle window, through its start and store check", async () => {
+      // Bun 1.4 puts a request's deadline at its start plus the last timeout set for it once its body is in
+      // (one set before is dropped as the body is read): setting the same value again moves nothing. So a
+      // window is in force when the route starts, 4 s here, and the start alone takes 5.5 s: the answer
+      // comes only if the route's own budget, asked once, really extends that window
       const home = newHome();
       claudeStore(join(home, ".claude"), ID(1), "default store prompt");
-      const events: string[] = [];
-      const shell = async (paneId: string): Promise<PaneProcesses> => {
-        if (paneId === "p-new") events.push("check");
-        return { shell_pid: 1, foreground_processes: [{ pid: 1, name: "bash", argv: ["bash"] }] };
-      };
+      const shell = async (): Promise<PaneProcesses> => ({ shell_pid: 1, foreground_processes: [{ pid: 1, name: "bash", argv: ["bash"] }] });
       const table = async (): Promise<ProcessRow[]> => [{ pid: 1, parent: 0, path: "bash", commandLine: "bash" }];
       const base = { stores: { home, env: {} }, snapshot: async () => snapshot(), paneProcesses: shell, table, launchSource: launchAbsent, launchCheckMs: 0 };
       const listed = await (await handleSessionHistoryRequest(...request("workspace_id=w1&agent=claude&pane_id=p1"), { readOnly: false, ...base })).json() as ClaudeListing;
+      const closed: string[] = [];
       const tabs = {
-        create: async () => { events.push("create"); return { tab: { tab_id: "t-new", workspace_id: "w1" }, root_pane: { pane_id: "p-new" } } as unknown as Awaited<ReturnType<typeof import("./herdr/client.ts").tabCreate>>; },
-        start: async () => { events.push("start"); return { agent_started: true as const }; },
-        close: async () => { events.push("close"); },
+        create: async () => ({ tab: { tab_id: "t-new", workspace_id: "w1" }, root_pane: { pane_id: "p-new" } }) as unknown as Awaited<ReturnType<typeof import("./herdr/client.ts").tabCreate>>,
+        // fixed wait: a start slower than the 4 s window is the case under test; the time is the behaviour
+        start: async () => { await Bun.sleep(5_500); return { agent_started: true as const }; },
+        close: async (tabId: string) => { closed.push(tabId); },
       };
-      await resume({ workspace_id: "w1", pane_id: "p1", agent: "claude", session_id: ID(1), store_key: listed.sessions[0]!.resume!.source!.store_key }, { ...base, tabs, extendTimeout: () => events.push("extend") });
-      expect(events).toEqual(["extend", "create", "start", "extend", "check", "close"]);
-      // a PC's resume goes through the proxy, which waits on both as long as a worktree's creation
+      const asked: number[] = [];
+      const server = Bun.serve({
+        port: 0, hostname: "127.0.0.1",
+        fetch: async (incoming) => {
+          // the body in, then the first window, as index.ts's own 75 s was before this budget
+          const body = await incoming.text();
+          server.timeout(incoming, 4);
+          return handleSessionResumeRequest(new Request(incoming.url, { method: "POST", body }), { readOnly: false, ...base, tabs, holdOpen: (seconds: number) => { asked.push(seconds); server.timeout(incoming, seconds); } });
+        },
+      });
+      try {
+        const body = JSON.stringify({ workspace_id: "w1", pane_id: "p1", agent: "claude", session_id: ID(1), store_key: listed.sessions[0]!.resume!.source!.store_key });
+        const response = await fetch(`http://127.0.0.1:${server.port}/api/sessions/resume`, { method: "POST", body });
+        // the new pane never shows a Claude, so the store check refuses it: an answer, not a dropped socket
+        expect([response.status, ((await response.json()) as { error?: { code: string } }).error?.code, closed]).toEqual([409, "launch_store_unknown", ["t-new"]]);
+      } finally { server.stop(true); }
+      // one budget, asked once, covering busy-shell retries (10 s), one agentStart (60 s) and the store
+      // check (15 s), within the most Bun takes (255 s)
+      expect(asked).toEqual([RESUME_BUDGET_S]);
+      expect(RESUME_BUDGET_S).toBeGreaterThanOrEqual(10 + 60 + 15);
+      expect(RESUME_BUDGET_S).toBeLessThanOrEqual(255);
+      // a PC's resume goes through the proxy, which waits on it as long as on a worktree's creation
       expect(["sessions/resume", "worktree/create", "sessions/history", "tab/create"].map(slowMachinePath)).toEqual([true, true, false, false]);
+    }, 20_000);
+
+    it("answers by its own deadline while the start still runs, and closes the tab that start made after", async () => {
+      // the per-call limits of herdr's RPCs add up past any one budget: the route answers by its deadline,
+      // within the window it asked for, and work that ends after that answer leaves no tab behind. The
+      // deadline here falls once the start is under way (in the server, a timer)
+      const home = newHome();
+      claudeStore(join(home, ".claude"), ID(1), "default store prompt");
+      const shell = async (): Promise<PaneProcesses> => ({ shell_pid: 1, foreground_processes: [{ pid: 1, name: "bash", argv: ["bash"] }] });
+      const table = async (): Promise<ProcessRow[]> => [{ pid: 1, parent: 0, path: "bash", commandLine: "bash" }];
+      const base = { stores: { home, env: {} }, snapshot: async () => snapshot(), paneProcesses: shell, table, launchSource: launchAbsent, launchCheckMs: 0 };
+      const listed = await (await handleSessionHistoryRequest(...request("workspace_id=w1&agent=claude&pane_id=p1"), { readOnly: false, ...base })).json() as ClaudeListing;
+      const valid = { workspace_id: "w1", pane_id: "p1", agent: "claude", session_id: ID(1), store_key: listed.sessions[0]!.resume!.source!.store_key };
+      const started = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      const closed = Promise.withResolvers<string>();
+      const made: string[] = [];
+      const tabs = {
+        create: async () => { made.push("t-new"); return { tab: { tab_id: "t-new", workspace_id: "w1" }, root_pane: { pane_id: "p-new" } } as unknown as Awaited<ReturnType<typeof import("./herdr/client.ts").tabCreate>>; },
+        // the start is still running when the deadline falls: it ends only once released
+        start: async () => { started.resolve(); await release.promise; return { agent_started: true as const }; },
+        close: async (tabId: string) => { closed.resolve(tabId); },
+      };
+      const server = Bun.serve({
+        port: 0, hostname: "127.0.0.1",
+        fetch: (incoming) => handleSessionResumeRequest(incoming, { readOnly: false, ...base, tabs, deadline: started.promise, holdOpen: (seconds: number) => server.timeout(incoming, seconds) }),
+      });
+      try {
+        const response = await fetch(`http://127.0.0.1:${server.port}/api/sessions/resume`, { method: "POST", body: JSON.stringify(valid) });
+        expect([response.status, ((await response.json()) as { error?: { code: string } }).error?.code]).toEqual([504, "resume_timed_out"]);
+        // a retry while that start still runs is refused: the tab it may find is the one about to be closed
+        const retried: string[] = [];
+        const shown = snapshot();
+        // the roster already lists the late start's pane, reporting the session, on the same store folder
+        const showing = { ...shown, tabs: [...shown.tabs, { tab_id: "t-new", workspace_id: "w1", number: 3 }], panes: [...shown.panes, { pane_id: "p-new", tab_id: "t-new", workspace_id: "w1", cwd: CWD, agent_session: { agent: "claude", kind: "id", source: "herdr:claude", value: ID(1) } }] } as unknown as typeof shown;
+        const [status, json] = await answer(await resume(valid, { ...base, snapshot: async () => showing, tabs: { ...tabs, create: async () => { retried.push("t-retry"); return tabs.create(); } } }));
+        expect([status, json.error?.code, retried]).toEqual([409, "resume_in_progress", []]);
+        release.resolve();
+        // the client was told the resume did not happen: the tab the late start made is closed
+        expect(await closed.promise).toBe("t-new");
+        expect(made).toEqual(["t-new"]);
+        // once that is done, the session can be resumed again
+        const again = await answer(await resume(valid, { ...base, tabs: { ...tabs, start: async () => ({ agent_started: false as const, error: { code: "agent_start_failed", message: "not in this test" } }) } }));
+        expect([again[0], again[1].action]).toEqual([200, "created"]);
+      } finally { release.resolve(); server.stop(true); }
     });
 
     it("closes a macOS resume whose Claude only looks exported to the listed store, and keeps one that writes there", async () => {

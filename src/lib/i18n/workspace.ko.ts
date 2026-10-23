@@ -25,6 +25,8 @@ export const WORKSPACE_KO: Record<string, string> = {
   "The source pane or its Claude store changed. Open the list again.": "목록을 읽어 온 패널이나 Claude 저장소가 바뀌었습니다. 목록을 다시 여세요.",
   "A shell startup file set another Claude store, so the new tab was closed.": "셸 시작 파일이 다른 Claude 저장소를 설정해 새 탭을 닫았습니다.",
   "The new tab's Claude store couldn't be confirmed, so the tab was closed.": "새 탭의 Claude 저장소를 확인하지 못해 탭을 닫았습니다.",
+  "Resuming took too long, so it was stopped. A tab it started will be closed. Try again.": "이어하기가 너무 오래 걸려 멈췄습니다. 시작한 탭은 닫힙니다. 다시 시도하세요.",
+  "This session is still being resumed. Try again in a moment.": "이 세션을 아직 이어하는 중입니다. 잠시 후 다시 시도하세요.",
   "Resume unavailable": "이어하기 불가",
   "This PC can't start this session in the store it was listed from": "이 PC는 이 세션을 목록을 읽어 온 저장소에서 시작할 수 없습니다",
   "Checkout missing": "체크아웃 없음",

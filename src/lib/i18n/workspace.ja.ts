@@ -25,6 +25,8 @@ export const WORKSPACE_JA: Record<string, string> = {
   "The source pane or its Claude store changed. Open the list again.": "一覧を読み込んだペインか、その Claude の保存先が変わりました。一覧を開き直してください。",
   "A shell startup file set another Claude store, so the new tab was closed.": "シェルの起動ファイルが別の Claude の保存先を設定したため、新しいタブを閉じました。",
   "The new tab's Claude store couldn't be confirmed, so the tab was closed.": "新しいタブの Claude の保存先を確認できなかったため、タブを閉じました。",
+  "Resuming took too long, so it was stopped. A tab it started will be closed. Try again.": "再開に時間がかかりすぎたため中止しました。開始したタブは閉じられます。もう一度お試しください。",
+  "This session is still being resumed. Try again in a moment.": "このセッションはまだ再開中です。しばらくしてからもう一度お試しください。",
   "Resume unavailable": "再開できません",
   "This PC can't start this session in the store it was listed from": "この PC では、一覧を読んだ保存先でこのセッションを開始できません",
   "Checkout missing": "チェックアウトがありません",

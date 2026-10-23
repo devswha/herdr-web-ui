@@ -125,12 +125,13 @@ async function paneStore(paneId: string, options: StoreOptions): Promise<{ store
  * store Claude may use (claude-store.ts claudeRecordOnlyIn: a copy of a store holds the same
  * record). Claude writes the record as it starts, so it is waited for too.
  */
-async function startedStore(paneId: string, listedDir: string, options: StoreOptions): Promise<{ store: NonNullable<Awaited<ReturnType<typeof paneStore>>>["store"]; writesListed: boolean } | null> {
+async function startedStore(paneId: string, listedDir: string, options: StoreOptions, stopped: () => boolean = () => false): Promise<{ store: NonNullable<Awaited<ReturnType<typeof paneStore>>>["store"]; writesListed: boolean } | null> {
   const deadline = Date.now() + (options.launchCheckMs ?? 15_000);
   const platform = options.platform ?? process.platform;
   const home = options.stores?.home ?? process.env["HOME"] ?? "";
   let landed: Awaited<ReturnType<typeof paneStore>> = null;
   for (;;) {
+    if (stopped()) return null;
     const found = await paneStore(paneId, options);
     if (found?.claude) {
       landed = found;
@@ -201,6 +202,26 @@ function reportsSession(pane: Snapshot["panes"][number], id: string): boolean {
 }
 
 /**
+ * How long a resume's request is kept open, in seconds from its start (holdOpen). The resume answers
+ * by RESUME_ANSWER_MS, before Bun would drop it with nothing said: herdr's calls each have a limit,
+ * but enough of them (the start of its Claude: 10 s of retries of a shell not up yet, then one
+ * agent.start of up to 60 s; the check of the store it came up on; reads around them) add up past any
+ * one budget. Bun takes at most 255; the PC proxy waits 165 s (machine-api.ts slowMachinePath).
+ */
+export const RESUME_BUDGET_S = 150;
+/** When a resume answers at the latest: its budget less room to send the answer. */
+const RESUME_ANSWER_MS = (RESUME_BUDGET_S - 10) * 1000;
+/** A resume answered by its deadline while its work still ran: that work makes no tab, and closes one it made once its start ends. */
+const timedOut = () => refuse(504, "resume_timed_out", "the resume took too long, so it was stopped; a tab it started is closed once its start ends");
+/**
+ * The resumes whose work still runs, answered or not, by workspace, session and store folder: another
+ * resume of the same session waits for it to end (409 resume_in_progress) rather than opening, or
+ * starting beside, a tab that work may still close.
+ */
+const resumesRunning = new Set<string>();
+const inProgress = () => refuse(409, "resume_in_progress", "this session is still being resumed: try again once that ends");
+
+/**
  * POST /api/sessions/resume (SessionResumeRequest): one listed Claude session, started in the store
  * its row was listed from. The store is found again from the pane: a pane gone, moved or now on
  * another store is 409 stale_source, one that cannot be told 409 claude_store_unknown, and nothing
@@ -214,18 +235,41 @@ function reportsSession(pane: Snapshot["panes"][number], id: string): boolean {
  * Claude's store is read back, and one on another store has its tab closed and is 409
  * launch_store_changed; one that does not say its store in time is closed too, 409
  * launch_store_unknown.
+ *
+ * `holdOpen` asks the server to keep the request open for a number of seconds, counted from its
+ * start: Bun 1.4 sets a request's deadline at its start plus the last timeout given once its body is
+ * in, so asking again for the same time moves nothing. It is asked once, for RESUME_BUDGET_S, and the
+ * answer comes by RESUME_ANSWER_MS (or once `deadline` settles: tests hand in their own), whatever
+ * still runs: 504 resume_timed_out, and work that ends later makes no tab and closes the one it made.
  */
-export async function handleSessionResumeRequest(request: Request, options: { readOnly: boolean; extendTimeout?: () => void } & StoreOptions): Promise<Response> {
+export async function handleSessionResumeRequest(request: Request, options: { readOnly: boolean; holdOpen?: (seconds: number) => void; deadline?: Promise<void> } & StoreOptions): Promise<Response> {
   if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
   if (options.readOnly) return jsonResponse({ error: { code: "read_only", message: "this device can only watch" } }, 403);
   const body = await readJsonObject<{ workspace_id?: unknown; pane_id?: unknown; agent?: unknown; session_id?: unknown; store_key?: unknown }>(request);
   if (body instanceof Response) return body;
+  // after the body is read: a timeout given before it is dropped as it is read
+  options.holdOpen?.(RESUME_BUDGET_S);
   if (typeof body.workspace_id !== "string" || body.workspace_id === "") return badRequest("missing_workspace_id", "workspace_id is required");
   if (typeof body.pane_id !== "string" || body.pane_id === "") return badRequest("invalid_pane_id", "pane_id must name the pane the list came from");
   if (body.agent !== "claude") return badRequest("invalid_agent", "only a Claude session is resumed here");
   if (typeof body.session_id !== "string" || !CLAUDE_SESSION.test(body.session_id)) return badRequest("invalid_session_id", "session_id must be a Claude session id");
   if (typeof body.store_key !== "string" || !STORE_KEY.test(body.store_key)) return badRequest("invalid_store_key", "store_key must be the key the list gave");
   const { workspace_id: workspaceId, pane_id: paneId, session_id: sessionId, store_key: storeKey } = body as { workspace_id: string; pane_id: string; session_id: string; store_key: string };
+  const run = { late: false };
+  // a work's failure is its answer, even one that comes after the deadline's
+  const work = resumeIn({ workspaceId, paneId, sessionId, storeKey }, options, run).catch((error: unknown) => errorResponse(error));
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const due = options.deadline ?? new Promise<void>((resolve) => { timer = setTimeout(resolve, RESUME_ANSWER_MS); });
+  const deadline = due.then(() => { run.late = true; return timedOut(); });
+  try { return await Promise.race([work, deadline]); } finally { clearTimeout(timer); }
+}
+
+/** The work of a resume (handleSessionResumeRequest); `run.late` once its answer has gone by the deadline. */
+async function resumeIn(
+  { workspaceId, paneId, sessionId, storeKey }: { workspaceId: string; paneId: string; sessionId: string; storeKey: string },
+  options: StoreOptions,
+  run: { late: boolean },
+): Promise<Response> {
   let snapshot;
   try { snapshot = await (options.snapshot ?? sessionSnapshot)(); } catch (error) { return errorResponse(error); }
   if (!snapshot.workspaces.some((entry) => entry.workspace_id === workspaceId)) return refuse(404, "workspace_not_found", "no such workspace");
@@ -241,6 +285,9 @@ export async function handleSessionResumeRequest(request: Request, options: { re
   if (!listSessions("claude", cwd, inStore(options.stores, store.dir)).some((row) => row.id === sessionId && row.resume !== null)) {
     return refuse(404, "session_not_found", "no such session in this folder's store");
   }
+  // a resume of this session whose work still runs may close the pane that now shows it
+  const running = `${workspaceId}\0${sessionId}\0${store.place}`;
+  if (resumesRunning.has(running)) return inProgress();
   for (const pane of snapshot.panes) {
     if (pane.workspace_id !== workspaceId || !reportsSession(pane, sessionId)) continue;
     const showing = pane.pane_id === paneId ? found : await paneStore(pane.pane_id, options);
@@ -248,15 +295,19 @@ export async function handleSessionResumeRequest(request: Request, options: { re
   }
   // none exported: the environment the new tab inherits must hand none down
   if (store.env === null && !await launchKeepsAbsence(options)) return refuse(409, "launch_unsupported", "a new tab here would not start Claude in the same store");
-  options.extendTimeout?.();
   const tabs = options.tabs ?? { create: tabCreate, start: agentLaunch, close: tabClose };
+  if (run.late) return timedOut();
+  if (resumesRunning.has(running)) return inProgress();
+  resumesRunning.add(running);
   try {
     const created = await tabs.create({ workspaceId, cwd, ...(store.env === null ? {} : { env: store.env }) });
+    const abandon = async () => { await tabs.close(created.tab.tab_id); return timedOut(); };
+    if (run.late) return await abandon();
     const launched = await tabs.start(created.root_pane.pane_id, { kind: "claude", args: ["--resume", sessionId] });
+    if (run.late) return await abandon();
     if (launched.agent_started) {
-      // the start can use most of the first idle window: the store check, which sends nothing, gets its own
-      options.extendTimeout?.();
-      const landed = await startedStore(created.root_pane.pane_id, store.dir, options);
+      const landed = await startedStore(created.root_pane.pane_id, store.dir, options, () => run.late);
+      if (run.late) return await abandon();
       if (landed === null) {
         await tabs.close(created.tab.tab_id);
         return refuse(409, "launch_store_unknown", "the new tab's Claude did not say its store in time, so its tab was closed");
@@ -269,5 +320,7 @@ export async function handleSessionResumeRequest(request: Request, options: { re
     return jsonResponse({ action: "created", workspace_id: created.tab.workspace_id, pane_id: created.root_pane.pane_id, ...launched } satisfies SessionResumeResponse);
   } catch (error) {
     return errorResponse(error);
+  } finally {
+    resumesRunning.delete(running);
   }
 }

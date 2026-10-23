@@ -25,6 +25,8 @@ export const WORKSPACE_ZH: Record<string, string> = {
   "The source pane or its Claude store changed. Open the list again.": "读取列表的窗格或其 Claude 存储已更改。请重新打开列表。",
   "A shell startup file set another Claude store, so the new tab was closed.": "Shell 启动文件设置了另一个 Claude 存储，因此新标签页已关闭。",
   "The new tab's Claude store couldn't be confirmed, so the tab was closed.": "无法确认新标签页的 Claude 存储，因此已关闭该标签页。",
+  "Resuming took too long, so it was stopped. A tab it started will be closed. Try again.": "继续耗时过长，已停止。已启动的标签页将被关闭。请重试。",
+  "This session is still being resumed. Try again in a moment.": "此会话仍在继续中。请稍后重试。",
   "Resume unavailable": "无法继续",
   "This PC can't start this session in the store it was listed from": "这台电脑无法在列出该会话的存储中启动它",
   "Checkout missing": "检出缺失",

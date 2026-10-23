@@ -515,7 +515,7 @@ export function createServer(
       if (pathname === SESSION_RESUME_PATH) {
         setRequestRoute(SESSION_RESUME_PATH);
         // agent.start can legitimately take a minute; Bun's default idle timeout is shorter
-        return handleSessionResumeRequest(request, { readOnly, stores: { codexHome: options.codexHome, opencodeDb: options.opencodeDb, hermesHome: options.hermesHome }, extendTimeout: () => bunServer.timeout(request, 75) });
+        return handleSessionResumeRequest(request, { readOnly, stores: { codexHome: options.codexHome, opencodeDb: options.opencodeDb, hermesHome: options.hermesHome }, holdOpen: (seconds) => bunServer.timeout(request, seconds) });
       }
 
       if (pathname.startsWith("/api/pane/prompt")) {

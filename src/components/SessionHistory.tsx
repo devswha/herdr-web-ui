@@ -88,6 +88,8 @@ export function SessionHistory({ workspace, panes, agent: firstAgent, sourcePane
     if (reason instanceof ApiError && reason.code === "stale_source") return t("The source pane or its Claude store changed. Open the list again.");
     if (reason instanceof ApiError && reason.code === "launch_store_changed") return t("A shell startup file set another Claude store, so the new tab was closed.");
     if (reason instanceof ApiError && reason.code === "launch_store_unknown") return t("The new tab's Claude store couldn't be confirmed, so the tab was closed.");
+    if (reason instanceof ApiError && reason.code === "resume_timed_out") return t("Resuming took too long, so it was stopped. A tab it started will be closed. Try again.");
+    if (reason instanceof ApiError && reason.code === "resume_in_progress") return t("This session is still being resumed. Try again in a moment.");
     return said(reason);
   }, [t]);
   const surface = useRef<HTMLDivElement>(null);
