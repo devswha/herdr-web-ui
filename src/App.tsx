@@ -2,8 +2,7 @@ import { type CSSProperties, type DragEvent, type ReactNode, useCallback, useEff
 import { Bell, Ellipsis, FolderOpen, Link, Menu, MessageSquare, PanelLeft, Search, SquareTerminal, X } from "lucide-react";
 
 import type { HerdrPane } from "../shared/protocol.ts";
-import { ApiError, authenticate, createTab, fetchHealth, fetchMachines, fetchSession, pairDevice, shareSeen, signOut, splitPane, verifySourceBoot, zoomPane, type HealthInfo } from "./lib/api.ts";
-import { applyHealthRead, healthFreshness, machineHealth, type HealthBook } from "./lib/healthPresentation.ts";
+import { authenticate, createTab, fetchSession, pairDevice, shareSeen, signOut, splitPane, zoomPane } from "./lib/api.ts";
 import { deviceLabel } from "./lib/phone.ts";
 import { displayPaneTitle } from "./components/Sidebar.tsx";
 import { PaneCanvas } from "./components/PaneCanvas.tsx";
@@ -17,9 +16,7 @@ import { AgentMark } from "./components/AgentMark.tsx";
 import { NewSessionDialog } from "./components/NewSessionDialog.tsx";
 import { SessionHistory } from "./components/SessionHistory.tsx";
 import { sessionHistoryAgent, sessionHistoryListAgent, sessionHistorySourcePane } from "./lib/sessionHistory.ts";
-import { passingFolder, recentDirectories } from "./lib/recent-directories.ts";
 import { usePreferencesSync } from "./lib/preferencesSync.ts";
-import { keepEventStream } from "./lib/eventStream.ts";
 import { TabStrip } from "./components/TabStrip.tsx";
 import { SettingsDialog } from "./components/SettingsDialog.tsx";
 import { loadedOnSettingsEntry, settingsEntry } from "./lib/settingsHistory.ts";
@@ -32,20 +29,15 @@ import { CommandPalette } from "./components/CommandPalette.tsx";
 import { MachineContext } from "./lib/machineContext.tsx";
 import { MachineActionBanner, MachineSidebar } from "./components/MachineSidebar.tsx";
 import { SidebarResizer } from "./components/SidebarResizer.tsx";
-import { receiveSeen } from "./lib/seenFinishes.ts";
 import { useSidebarActivityState } from "./lib/sidebarActivity.tsx";
 import { FilePanelResizer } from "./components/FilePanelResizer.tsx";
 import { openPresentation } from "./lib/filePresentation.ts";
 import { MachineDialog } from "./components/MachineDialog.tsx";
 import { RowMenu, type RowMenuItem } from "./components/RowMenu.tsx";
 import { headerCrumb, showsChat } from "./lib/headerCrumb.ts";
-import { paneStorageId, type Machine, type MachineEvent } from "../shared/machines.ts";
+import { paneStorageId } from "../shared/machines.ts";
 import { takeAuthTokenFromUrl } from "./lib/authLink.ts";
-import { applyPaneStatus } from "./lib/snapshot.ts";
-import { setAgentRowTokens } from "./lib/agentRowTokens.ts";
 import { rosterPanes } from "./lib/dagPane.ts";
-import { SnapshotRequests } from "./lib/snapshotRequests.ts";
-import { ReorderCoordinator } from "./lib/workspaceOrder.ts";
 import { ReorderContext } from "./lib/machineContext.tsx";
 import { useSettings } from "./lib/settings.ts";
 import { formatKeys, shortcutDisplayKeys, useShortcuts } from "./lib/shortcuts.ts";
@@ -68,6 +60,8 @@ import { WebPanelContext } from "./lib/webPanel.ts";
 import { RepoDiffViewer } from "./components/RepoDiffViewer.tsx";
 import { OpenFileContext } from "./lib/filePaths.ts";
 import { useAccessState, useLockedRef } from "./lib/useAccess.ts";
+import { useLocalHealth } from "./lib/useLocalHealth.ts";
+import { useMachinesRef, useRecentFolderMemory, useRefetchTimer, useRosterError, useRosterEvents, useRosterLoader, useRosterState } from "./lib/useMachineRoster.ts";
 import { useMachineDialog } from "./lib/useMachineDialog.ts";
 import { useNewSessionMachine, useNewSessionState, useSessionHistoryList } from "./lib/useNewSessionDialog.ts";
 import { useCommandPalette } from "./lib/useCommandPalette.ts";
@@ -76,7 +70,6 @@ import { usePaneCoverage } from "./lib/usePaneCoverage.ts";
 import { useT } from "./lib/i18n.ts";
 import { useConnectionChip, useServerMessageHandler } from "./lib/useConnectionChip.ts";
 import { markSelection, selectionStill, type SelectionMark } from "./lib/selectionMark.ts";
-import { followsHerdrFocus } from "./lib/followFocus.ts";
 import { useScreenWakeLock } from "./lib/wakeLock.ts";
 import { useSidebarLayout } from "./lib/useSidebarLayout.ts";
 import { alertsBell, useAlertPrefs, useAlertRefs, useAlertSignals, useNotificationState, useNotificationSwitch } from "./lib/useAlerts.ts";
@@ -92,17 +85,6 @@ import { RenderBoundary } from "./components/RenderBoundary.tsx";
 const APP_TITLE = "Ovis";
 /** how soon after a key press a focus counts as the user's own (lastKeyAtRef) */
 const KEY_FOCUS_MS = 1000;
-const POLL_MS = 5000;
-
-/**
- * Polls and the event stream hand over fresh objects every few seconds even when nothing
- * changed; storing them re-rendered the whole app (the chat transcript included) each time.
- */
-function sameData(a: unknown, b: unknown): boolean {
-  return a === b || JSON.stringify(a) === JSON.stringify(b);
-}
-/** trailing debounce for push-triggered refetches: bursts of events become one fetch */
-const REFETCH_DEBOUNCE_MS = 500;
 
 const SELECTION_KEY = "ovis:selection";
 type StoredSelection = { machine_id?: string; pane_id?: string | null };
@@ -210,8 +192,7 @@ export function App() {
   const apple = /Mac|iPhone|iPad/.test(navigator.platform);
   const { settings, resolvedTheme, resolvedEntry, update: updateSettings } = useSettings();
   const { alerts, alertsRef, alertsOn, alertsOnRef } = useAlertPrefs({ settings });
-  const [machines, setMachines] = useState<Machine[]>([]);
-  const [machineRosterLoaded, setMachineRosterLoaded] = useState(false);
+  const { machines, setMachines, machineRosterLoaded, setMachineRosterLoaded } = useRosterState();
   // the place the address names, read once at load: a link wins over this window's last selection
   const [initialLink] = useState(() => {
     // a link's lens is drawn over its pane's own, as a tapped notification's is (notificationViewTarget below)
@@ -221,39 +202,19 @@ export function App() {
     // dialog its address names, on that entry or on the one stepped back to, is the one it closed
     return loadedOnSettingsEntry() ? { ...link, settings: null, section: null } : link;
   });
-  // New workspace's recent folders also know where a PC's panes are: kept behind the folders started in
-  useEffect(() => {
-    for (const machine of machines) {
-      if (machine.state !== "connected" || !machine.snapshot) continue;
-      // a worktree's checkout or a temporary folder is no project to start a workspace in
-      const linked = machine.snapshot.workspaces.filter((workspace) => workspace.worktree?.is_linked_worktree);
-      const inLinked = new Set(linked.map((workspace) => workspace.workspace_id));
-      const worktrees = linked.map((workspace) => workspace.worktree!.checkout_path);
-      recentDirectories.remember(machine.id, machine.snapshot.panes
-        .filter((pane) => !pane.restore_error && !inLinked.has(pane.workspace_id) && !(pane.cwd && passingFolder(pane.cwd, worktrees)))
-        .map((pane) => pane.cwd).reverse());
-    }
-  }, [machines]);
+  useRecentFolderMemory({ machines });
   const [selectedMachineId, setSelectedMachineId] = useState(() => {
     if (initialLink && (initialLink.pane || initialLink.workspace || fileFromLink(initialLink))) return initialLink.machine;
     return storedSelection()?.machine_id ?? "local";
   });
   const selectedMachine = machines.find((m) => m.id === selectedMachineId);
   const snapshot = selectedMachine?.snapshot ?? null;
-  const machinesRef = useRef(machines); machinesRef.current = machines;
+  const { machinesRef } = useMachinesRef({ machines });
   const [updateRemote, setUpdateRemote] = useState(false);
   const { machineDialog, setMachineDialog, addPcFocusReturn, closeMachineDialog } = useMachineDialog();
   const { newSessionMachineId, setNewSessionMachineId } = useNewSessionMachine();
-  // this PC's health reads (lib/healthPresentation.ts): its newest answer is what its herdr can do,
-  // the failed reads since then only change what the header says
-  const healthBook = useRef<HealthBook<HealthInfo>>(new Map());
-  const healthReads = useRef(0);
-  const [localHealth, setLocalHealth] = useState<{ confirmed: HealthInfo | null; failures: number }>({ confirmed: null, failures: 0 });
-  const health = localHealth.confirmed;
-  const localFreshness = healthFreshness(localHealth);
-  // what the app says about this PC beyond its herdr's capabilities: kept through one failed read, as the header's details are
-  const shownHealth = localFreshness === "unavailable" ? null : health;
-  const [error, setError] = useState<string | null>(null);
+  const { health, localFreshness, shownHealth, readLocalHealth } = useLocalHealth();
+  const { error, setError } = useRosterError();
   const { layoutNotice, setLayoutNotice } = useLayoutNotice();
   const { locked, setLocked, lockReason, pairCode, auth, canSignOut, pairedFromAddress, readBridgeHealth } = useAccessState();
   useEffect(() => {
@@ -395,156 +356,19 @@ export function App() {
   const { statusRef, turnStartRef, lastTurnRef, alertInAppRef, alertSoundRef } = useAlertRefs({ settings });
   const followFocusRef = useRef(settings.followHerdrFocus);
   followFocusRef.current = settings.followHerdrFocus;
-  const refetchTimer = useRef<number | null>(null);
+  const { refetchTimer } = useRefetchTimer();
   const snapshotRef = useRef<typeof snapshot>(null);
   snapshotRef.current = snapshot;
 
   const loadHealth = useCallback(async () => {
     await readBridgeHealth();
-    const read = ++healthReads.current;
-    const answer = await fetchHealth().then((value) => ({ ok: true, value }) as const, () => ({ ok: false }) as const);
-    const book = applyHealthRead(healthBook.current, "local", read, answer);
-    if (book === healthBook.current) return;
-    healthBook.current = book;
-    const { confirmed, failures } = machineHealth(book, "local");
-    setLocalHealth((previous) => sameData(previous, { confirmed, failures }) ? previous : { confirmed, failures });
+    await readLocalHealth();
   }, []);
-  const snapshotRequests = useRef(new SnapshotRequests());
-  // every PC's dragged workspace order, held until a roster read after its moves comes
-  // (lib/workspaceOrder.ts): App's, so a Sidebar remount or PC switch cannot lose it. A roster load
-  // once the moves settle may bring that roster sooner; it proves nothing by itself.
-  const loadRef = useRef<() => Promise<void>>(async () => {});
-  const [reorderCoordinator] = useState(() => new ReorderCoordinator({ verify: verifySourceBoot, onSettled: () => void loadRef.current() }));
-  const load = useCallback(async () => {
-    const started = reorderCoordinator.loadStarted();
-    try {
-      await snapshotRequests.current.read(fetchMachines, (next) => {
-        reorderCoordinator.roster(next, { kind: "load", started });
-        setMachines((previous) => sameData(previous, next) ? previous : next);
-        rosterIn();
-        setMachineRosterLoaded(true);
-        setError(null); setLocked(false);
-      });
-    }
-    catch (err) {
-      if (err instanceof ApiError && err.status === 401) { setLocked(true); return; }
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }, [rosterIn, reorderCoordinator]);
-  loadRef.current = load;
-
-  useEffect(() => {
-    const tick = (): void => {
-      // a hidden tab (or a phone app in the background) polls nothing; it catches up on return
-      if (document.visibilityState === "hidden") return;
-      void loadHealth();
-      // a locked tab only watches health, so a token entered in another tab still unlocks it
-      if (lockedRef.current !== true) void load();
-    };
-    let timer = 0;
-    let disposed = false;
-    void (async (): Promise<void> => {
-      // a bookmarked `#auth=<token>` link unlocks without typing; the fragment is
-      // stripped before anything renders, and a stale token falls through to the
-      // gate the first health check mounts
-      const linkToken = takeAuthTokenFromUrl();
-      if (linkToken !== null) await authenticate(linkToken).catch(() => undefined);
-      if (disposed) return;
-      tick();
-      timer = window.setInterval(tick, POLL_MS);
-    })();
-    const onVisible = (): void => {
-      if (document.visibilityState === "visible" && !disposed) tick();
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => {
-      disposed = true;
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", onVisible);
-    };
-  }, [load, loadHealth]);
-
-  // push-triggered refetches are debounced so an event burst becomes one fetch
-  const scheduleRefetch = useCallback(() => {
-    if (refetchTimer.current !== null) return;
-    refetchTimer.current = window.setTimeout(() => {
-      refetchTimer.current = null;
-      if (lockedRef.current !== true) void load();
-    }, REFETCH_DEBOUNCE_MS);
-  }, [load]);
-
-  useEffect(() => () => {
-    if (refetchTimer.current !== null) window.clearTimeout(refetchTimer.current);
-  }, []);
+  const { snapshotRequests, reorderCoordinator, load, scheduleRefetch } = useRosterLoader({ rosterIn, setMachines, setMachineRosterLoaded, setError, setLocked, loadHealth, lockedRef, refetchTimer });
 
   const { dropIn, chime, onRoster, onPaneStatus, onPaneExited } = useAlertSignals({ settings, selectionRef, drawerOpenRef, splitRef, splitShownRef, machinesRef, alertsRef, alertsOnRef, pushOnRef, statusRef, turnStartRef, lastTurnRef, alertInAppRef, alertSoundRef });
 
-  // One SSE subscription watches every PC, even when no terminal is selected.
-  useEffect(() => {
-    if (locked !== false) return;
-    const onMessage = (event: MessageEvent<string>) => {
-      let payload: MachineEvent;
-      try { payload = JSON.parse(event.data); } catch { return; }
-      if (payload.type === "preferences") { receivePreferencesRef.current(payload.preferences); return; }
-      if (payload.type === "herdr-sidebar") { setAgentRowTokens(payload.agents); return; }
-      if (payload.type === "seen") { receiveSeen(payload.finishes); return; }
-      // A poll started before this event can carry an older roster or pane status.
-      snapshotRequests.current.invalidate();
-      if (payload.type === "machines") {
-        onRoster(payload.machines);
-        reorderCoordinator.roster(payload.machines, { kind: "event" });
-        setMachines((previous) => sameData(previous, payload.machines) ? previous : payload.machines);
-        rosterIn();
-        setMachineRosterLoaded(true);
-        return;
-      }
-      const machine = machinesRef.current.find((m) => m.id === payload.machine_id);
-      if (!machine) return;
-      const message = payload.message;
-      if (message.type === "pane-status") {
-        onPaneStatus(machine, message, takeNotificationTargetRef);
-        setMachines((list) => {
-          let changed = false;
-          const next = list.map((m) => {
-            if (m.id !== machine.id || !m.snapshot) return m;
-            const snapshot = applyPaneStatus(m.snapshot, message.pane_id, message.agent_status, message.background_tasks, message.background_wait === true, message.plan, message.finish_id, message.finish_epoch);
-            if (snapshot === m.snapshot) return m;
-            changed = true;
-            return { ...m, snapshot };
-          });
-          return changed ? next : list;
-        });
-      }
-      if (message.type === "pane-exited") {
-        if (machine.id === "local") window.dispatchEvent(new Event("herdr-usage-changed"));
-        onPaneExited(machine, message, takeNotificationTargetRef);
-      }
-      // herdr's own window moved to another pane: this device follows it when asked to. As an
-      // automatic pick it raises no keyboard and adds no Back entry; a pane too new for the roster
-      // is confirmed with its PC first, as a pane made here is (the selection effect below)
-      if (message.type === "pane-focused" && followsHerdrFocus({
-        enabled: followFocusRef.current, machineId: machine.id, paneId: message.pane_id, selection: selectionRef.current,
-        splitOther: splitShownRef.current ? splitRef.current?.other ?? null : null, linkPending: pendingLink.current !== null,
-      })) {
-        selectionHint.current = null;
-        setSelectedPaneId(message.pane_id);
-        setNotificationViewTarget(null); setTerminalPeek(null);
-        setAutoSelected(true);
-      }
-      if (message.type === "session-changed" || message.type === "pane-exited") scheduleRefetch();
-    };
-    return keepEventStream("/api/machines/events", {
-      // opened or reopened: a shared-settings save paused by failures gets a new round
-      opened: () => preferencesResubscribedRef.current(),
-      // lost (the browser reconnects by itself): a shared-settings save waits for that instead of retrying
-      lost: () => preferencesDisconnectedRef.current(),
-      // the browser gave up on it (a proxy's 502 during a restart): a save nobody refused stops waiting for
-      // it while a new one is opened, and a refused one waits for that one's opening document (after a 401
-      // the next poll locks the app, which ends this effect and its wait)
-      closed: () => preferencesClosedRef.current(),
-      message: onMessage,
-    });
-  }, [locked, scheduleRefetch, dropIn, chime, reorderCoordinator]);
+  useRosterEvents({ locked, receivePreferencesRef, snapshotRequests, onRoster, reorderCoordinator, setMachines, rosterIn, setMachineRosterLoaded, machinesRef, onPaneStatus, onPaneExited, followFocusRef, selectionRef, splitShownRef, splitRef, pendingLink, selectionHint, setSelectedPaneId, setNotificationViewTarget, setTerminalPeek, setAutoSelected, scheduleRefetch, preferencesResubscribedRef, preferencesDisconnectedRef, preferencesClosedRef, dropIn, chime, getTakeNotificationTargetRef: () => takeNotificationTargetRef });
 
   const handleServerMessage = useServerMessageHandler(setOutputStopped);
 
