@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { lstat, readlink, realpath } from "node:fs/promises";
+import { constants } from "node:fs";
+import { lstat, open, readlink, realpath } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 
 import type { SlashCommand } from "../shared/protocol.ts";
@@ -446,11 +447,15 @@ export async function paneDaemonHome(paneId: string, configured?: string, platfo
   const value = (key: string): string | null => environ.find((word) => word.startsWith(`${key}=`))?.slice(key.length + 1) || null;
   const own = value("CODEX_HOME");
   const home = value("HOME");
-  if (own && !isAbsolute(own)) {
-    const cwd = await (processFiles.cwd ? processFiles.cwd(codex.pid) : readlink(`/proc/${codex.pid}/cwd`)).catch(() => null);
-    return cwd ? resolve(cwd, own) : null;
-  }
-  return own ?? (home ? join(home, ".codex") : null);
+  if (!own) return home ? join(home, ".codex") : null;
+  try {
+    const base = isAbsolute(own) ? `/proc/${codex.pid}/root` : await processFiles.cwd?.(codex.pid) ?? `/proc/${codex.pid}/cwd`;
+    // Bun realpath normalizes ".." before following links. Let the kernel traverse the raw
+    // path first; Linux O_PATH (0x200000) needs no directory read permission.
+    const directory = await open(`${base}/${own}`, 0x200000 | constants.O_DIRECTORY);
+    try { return await realpath(`/proc/self/fd/${directory.fd}`); }
+    finally { await directory.close(); }
+  } catch { return null; }
 }
 
 registerCatalogSource({

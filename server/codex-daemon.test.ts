@@ -139,16 +139,35 @@ describe("codex daemon skills", () => {
     expect(await paneDaemonHome("any-pane", undefined, "win32")).toBeNull();
   });
 
-  it("uses the first CODEX_HOME when the Linux environment repeats it", async () => {
+  it.skipIf(process.platform !== "linux")("uses the first CODEX_HOME when the Linux environment repeats it", async () => {
     // Given a process environment with different duplicate values.
+    const first = temp("codex-home-first-");
+    const last = temp("codex-home-last-");
     const processFiles = {
       lookup: async () => ({ pid: process.pid }),
-      environ: () => ["CODEX_HOME=/first/codex", "CODEX_HOME=/last/codex", "HOME=/fallback"],
+      environ: () => [`CODEX_HOME=${first}`, `CODEX_HOME=${last}`, "HOME=/fallback"],
     };
     // When the pane's daemon home is read.
     const home = await paneDaemonHome("any-pane", undefined, "linux", processFiles);
     // Then it agrees with getenv's first occurrence.
-    expect(home).toBe("/first/codex");
+    expect(home).toBe(realpathSync(first));
+  });
+
+  it.skipIf(process.platform !== "linux").each(["relative", "absolute"])("follows a symlink before its parent component in %s CODEX_HOME", async (kind) => {
+    // Given a link whose target's parent differs from the process cwd.
+    const cwd = temp("codex-home-parent-");
+    const target = join(cwd, "other");
+    mkdirSync(join(target, "child"), { recursive: true });
+    symlinkSync(join(target, "child"), join(cwd, "link"));
+    const processFiles = {
+      lookup: async () => ({ pid: process.pid }),
+      environ: () => [`CODEX_HOME=${kind === "relative" ? "link/.." : `${cwd}/link/..`}`],
+      cwd: async () => cwd,
+    };
+    // When resolving the pane's home without discarding path components.
+    const home = await paneDaemonHome("any-pane", undefined, "linux", processFiles);
+    // Then filesystem traversal selects the target's parent, not the cwd.
+    expect(home).toBe(realpathSync(target));
   });
 
   it("uses the first HOME when the Linux environment repeats it", async () => {
@@ -163,32 +182,34 @@ describe("codex daemon skills", () => {
     expect(home).toBe("/first/home/.codex");
   });
 
-  it("resolves a relative CODEX_HOME against the Linux process cwd", async () => {
+  it.skipIf(process.platform !== "linux")("resolves a relative CODEX_HOME against the Linux process cwd", async () => {
     // Given a process cwd different from the server's and a relative CODEX_HOME.
+    const cwd = temp("codex-home-cwd-");
+    mkdirSync(join(cwd, "relative-codex"));
     const processFiles = {
       lookup: async () => ({ pid: 123 }),
       environ: () => ["CODEX_HOME=relative-codex", "HOME=/fallback"],
       cwd: async (pid: number) => {
         expect(pid).toBe(123);
-        return "/codex/process";
+        return cwd;
       },
     };
     // When the pane's daemon home is read.
     const home = await paneDaemonHome("any-pane", undefined, "linux", processFiles);
     // Then the result is absolute, as seen by that process.
-    expect(home).toBe("/codex/process/relative-codex");
+    expect(home).toBe(join(realpathSync(cwd), "relative-codex"));
   });
 
   it.skipIf(process.platform !== "linux")("reads the Linux process cwd from proc for a relative CODEX_HOME", async () => {
     // Given this test process has a readable /proc cwd.
     const processFiles = {
       lookup: async () => ({ pid: process.pid }),
-      environ: () => ["CODEX_HOME=relative-codex"],
+      environ: () => ["CODEX_HOME=."],
     };
     // When the real cwd reader resolves the relative home.
     const home = await paneDaemonHome("any-pane", undefined, "linux", processFiles);
     // Then the home is rooted at this process's directory.
-    expect(home).toBe(join(realpathSync(`/proc/${process.pid}/cwd`), "relative-codex"));
+    expect(home).toBe(realpathSync(`/proc/${process.pid}/cwd`));
   });
 
   it("returns null when a relative CODEX_HOME has an unreadable Linux process cwd", async () => {
@@ -204,22 +225,55 @@ describe("codex daemon skills", () => {
   });
 
   it.each([
-    { environ: ["CODEX_HOME=/absolute/codex"], expected: "/absolute/codex" },
     { environ: ["CODEX_HOME=", "CODEX_HOME=/ignored", "HOME=/fallback"], expected: "/fallback/.codex" },
     { environ: ["HOME=", "HOME=/ignored"], expected: null },
     { environ: [], expected: null },
     { environ: null, expected: null },
   ])("uses Linux home $expected without reading cwd for $environ", async ({ environ, expected }) => {
-    // Given an absolute home, default home, or unavailable environment.
+    // Given a default home or unavailable environment.
+    let cwdReads = 0;
     const processFiles = {
       lookup: async () => ({ pid: 0 }),
       environ: () => environ,
-      cwd: async () => { throw new Error("cwd must not be read"); },
+      cwd: async () => { cwdReads++; return "/unused"; },
     };
     // When the pane's daemon home is read.
     const home = await paneDaemonHome("any-pane", undefined, "linux", processFiles);
     // Then cwd is irrelevant to the selected home.
     expect(home).toBe(expected);
+    expect(cwdReads).toBe(0);
+  });
+
+  it.skipIf(process.platform !== "linux").each(["relative", "absolute"])("canonicalizes an existing %s CODEX_HOME through symlinks", async (kind) => {
+    // Given an existing directory and a symlink to it.
+    const cwd = temp("codex-home-link-");
+    const target = join(cwd, "target");
+    mkdirSync(target);
+    symlinkSync(target, join(cwd, "link"));
+    const own = kind === "relative" ? "link" : join(cwd, "link");
+    // When reading the process's configured home.
+    const home = await paneDaemonHome("any-pane", undefined, "linux", {
+      lookup: async () => ({ pid: process.pid }),
+      environ: () => [`CODEX_HOME=${own}`],
+      cwd: async () => cwd,
+    });
+    // Then relative and absolute values share the canonical directory.
+    expect(home).toBe(realpathSync(target));
+  });
+
+  it.skipIf(process.platform !== "linux").each(["missing", "link/child", "file"])("returns null when CODEX_HOME %s is not a directory", async (own) => {
+    // Given a missing path, dangling symlink traversal, or regular file.
+    const cwd = temp("codex-home-invalid-");
+    symlinkSync(join(cwd, "absent"), join(cwd, "link"));
+    symlinkSync(import.meta.path, join(cwd, "file"));
+    // When reading an invalid home rather than the fallback.
+    const home = await paneDaemonHome("any-pane", undefined, "linux", {
+      lookup: async () => ({ pid: process.pid }),
+      environ: () => [`CODEX_HOME=${own}`, "HOME=/fallback"],
+      cwd: async () => cwd,
+    });
+    // Then no daemon home can be established.
+    expect(home).toBeNull();
   });
 
   it("gives native skill rows, enabled ones only, and sends nothing but initialize and skills/list", async () => {
