@@ -9,7 +9,23 @@ import { chromePath } from "./chrome-path.ts";
 
 // #1457: with the keyboard up a phone is short enough to drop a lone tab's row, and the chat then
 // puts the glass header over the pane. The pane's own menu button must start below that header,
-// never under its More button (six dots, not three).
+// never under its More button (six dots, not three), and a banner (View only) must not cover it.
+type SocketsWindow = Window & { glassSockets: WebSocket[] };
+
+/** Keeps the demo's sockets, so the check can turn this connection into a view-only one. */
+function recordSockets(): void {
+  const sockets: WebSocket[] = [];
+  (window as SocketsWindow).glassSockets = sockets;
+  const Demo = window.WebSocket;
+  const Recorded = function (url: string | URL, protocols?: string | string[]) {
+    const socket = new Demo(url, protocols);
+    sockets.push(socket);
+    return socket;
+  };
+  for (const name of ["CONNECTING", "OPEN", "CLOSING", "CLOSED"] as const) Object.defineProperty(Recorded, name, { value: Demo[name] });
+  window.WebSocket = Recorded as unknown as typeof WebSocket;
+}
+
 const evidence = process.env.UI_EVIDENCE_DIR;
 const app = mkdtempSync(join(tmpdir(), "ovis-glass-header-demo-"));
 try {
@@ -17,7 +33,7 @@ try {
   const index = join(app, "index.html");
   const html = readFileSync(index, "utf8");
   assert.match(html, /<script type="module"/);
-  writeFileSync(index, html.replace(/<script type="module"/, '<script src="./demo-transport.js"></script>\n    <script type="module"'));
+  writeFileSync(index, html.replace(/<script type="module"/, () => `<script src="./demo-transport.js"></script>\n<script>(${recordSockets.toString()})()</script>\n<script type="module"`));
 
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const path = new URL(request.url).pathname;
@@ -84,11 +100,30 @@ try {
         assert.notEqual(await page.locator(".app-header").evaluate((node) => getComputedStyle(node).backdropFilter), "none",
           "the chat of a lone tab with no row puts the glass header over the pane");
         await checkMenus(page, "chat-keyboard");
+
+        // a view-only connection draws its "View only" banner at the pane's top right too
+        await page.evaluate(() => (window as SocketsWindow).glassSockets.at(-1)!.send(JSON.stringify({ type: "role", mode: "observe" })));
+        await page.locator(".terminal-banner-observe").waitFor();
+        await page.locator(".tab-strip").waitFor({ state: "detached" });
+        await checkMenus(page, "chat-keyboard-view-only");
+        const banners = await page.locator(".terminal-banners > :not(.visually-hidden)").evaluateAll((nodes) => nodes.map((node) => {
+          const box = node.getBoundingClientRect();
+          return { x: box.x, y: box.y, width: box.width, height: box.height, text: node.textContent?.trim() ?? "" };
+        }).filter((box) => box.width > 0 && box.height > 0));
+        assert.ok(banners.some((banner) => banner.text === "View only"), `the View only banner is drawn (${JSON.stringify(banners)})`);
+        const menu = await page.locator(".pane-frame.is-single .pane-frame-menu").boundingBox();
+        if (!menu) throw new Error("the lone pane's menu has a box");
+        for (const banner of banners) {
+          const overlaps = menu.x < banner.x + banner.width && banner.x < menu.x + menu.width && menu.y < banner.y + banner.height && banner.y < menu.y + menu.height;
+          assert.equal(overlaps, false, `the banner "${banner.text}" ${JSON.stringify(banner)} covers the lone pane's menu ${JSON.stringify(menu)}`);
+        }
+        assert.equal(await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest(".pane-frame-menu") instanceof HTMLElement, { x: menu.x + menu.width / 2, y: menu.y + menu.height / 2 }), true,
+          "a press on the lone pane's menu reaches it, not a banner over it");
         assert.deepEqual(errors, []);
       } finally { await context.close(); }
     } finally { await browser.close(); }
   } finally { await server.stop(true); }
-  console.log("PASS phone glass header: a lone pane's menu starts below the header, never under its More button");
+  console.log("PASS phone glass header: a lone pane's menu starts below the header, never under its More button or a banner");
 } finally {
   rmSync(app, { recursive: true, force: true });
 }

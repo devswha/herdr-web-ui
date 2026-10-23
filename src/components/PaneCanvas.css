@@ -54,6 +54,13 @@
 .pane-frame.is-single:has(.find-bar) > .pane-frame-head { display: none; }
 /* the tab strip's touch menu carries the open pane's actions: a lone pane draws no second ellipsis */
 .pane-column:has(.tab-strip-menu) .pane-frame.is-single > .pane-frame-head { display: none; }
+/* Where that ellipsis shows (a finger's screen, no tab row, no find bar), the pane's banner column
+   (PaneTerminal.css) starts below it: a banner such as View only never covers the menu. */
+@media (hover: none), (pointer: coarse), (pointer: none), (any-pointer: coarse) {
+  .pane-column:not(:has(.tab-strip-menu)) .pane-frame.is-single:not(:has(.find-bar)) > .pane-frame-body .terminal-banners {
+    top: calc(var(--header-over, 0px) + var(--touch-target) + var(--space-1));
+  }
+}
 .pane-divider {
   position: absolute;
   z-index: var(--z-banner);
