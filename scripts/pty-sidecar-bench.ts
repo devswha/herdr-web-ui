@@ -37,7 +37,9 @@ const outAt = process.argv.indexOf("--out");
 const OUT = outAt === -1 ? null : process.argv[outAt + 1] ?? null;
 
 assert.equal(process.platform, "linux", "the host's CPU and memory are read from /proc");
-assert.ok(rustSidecar({ OVIS_PTY_SIDECAR: "rust" }), `build the Rust host first: ${RUST_SIDECAR_BUILD}`);
+/** the binary PtySession runs for OVIS_PTY_SIDECAR=rust: OVIS_PTY_SIDECAR_BIN, else the release build */
+const RUST_HOST = rustSidecar({ ...process.env, OVIS_PTY_SIDECAR: "rust" }) ?? "";
+assert.ok(RUST_HOST, `build the Rust host first (${RUST_SIDECAR_BUILD}) or set OVIS_PTY_SIDECAR_BIN`);
 const TICK_MS = 1000 / Number(Bun.spawnSync(["getconf", "CLK_TCK"]).stdout.toString().trim() || 100);
 
 function use(host: Host): void {
@@ -67,7 +69,7 @@ function childrenOf(parent: number): number[] {
 }
 /** The host process a session just spawned: this process's child running that host. */
 function hostPid(host: Host, known: Set<number>): number {
-  const marker = host === "rust" ? RUST_SIDECAR_BUILD : "pty-host.mjs";
+  const marker = host === "rust" ? RUST_HOST : "pty-host.mjs";
   const pid = childrenOf(process.pid).find((candidate) => !known.has(candidate) && readFileSync(`/proc/${candidate}/cmdline`, "utf8").includes(marker));
   assert.ok(pid, `no ${host} host process found`);
   return pid;
@@ -319,7 +321,8 @@ const versions = {
   kernel: Bun.spawnSync(["uname", "-r"]).stdout.toString().trim(),
   bun: Bun.version,
   node: Bun.spawnSync(["node", "--version"]).stdout.toString().trim(),
-  rustHostBytes: Bun.file(RUST_SIDECAR_BUILD).size,
+  rustHost: RUST_HOST,
+  rustHostBytes: Bun.file(RUST_HOST).size,
 };
 console.log(JSON.stringify({ versions, rounds: ROUNDS, echoes: ECHOES, mib: MIB, idle: IDLE, attaches: ATTACHES }));
 
