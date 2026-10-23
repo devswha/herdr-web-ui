@@ -165,6 +165,9 @@ export function isolate(base: Record<string, string | undefined>, kept: string |
     LANGUAGE: "en_US:en",
     XDG_CONFIG_HOME: config,
     [DISPOSABLE_CONFIG_ENV]: config,
+    // the run's own session (where scripts/test-herdr.ts starts it), so a server started by hand
+    // inside `check run` never falls back to the herdr the user works in
+    HERDR_SOCKET: join(sessions, session, "herdr.sock"),
     XDG_STATE_HOME: join(dir, "state"),
     OVIS_STATE_DIR: join(dir, "web-state"),
     HERDR_TEST_SESSION: session,
