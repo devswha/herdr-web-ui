@@ -9,18 +9,26 @@ const script = fileURLToPath(new URL("./self-hosted-runner/run.sh", import.meta.
 const jobStarted = fileURLToPath(new URL("./self-hosted-runner/job-started.sh", import.meta.url));
 
 /** Runs the hook as the runner does, under a process named Runner.Worker (a copy of bash) that goes on after it. */
-function runJobStarted(eventName: string, payload: unknown) {
+function runJobStarted(eventName: string, payload: unknown, event: { raw?: string; path?: "missing" | "directory" | "unset"; closedOutput?: boolean } = {}) {
   const tempDir = mkdtempSync(join(tmpdir(), "herdr-runner-hook-test-"));
   try {
-    const eventPath = join(tempDir, "event.json");
-    writeFileSync(eventPath, JSON.stringify(payload));
+    let eventPath: string | undefined = join(tempDir, "event.json");
+    writeFileSync(eventPath, event.raw ?? JSON.stringify(payload));
+    if (event.path === "missing") eventPath = join(tempDir, "no-such-event.json");
+    if (event.path === "directory") eventPath = tempDir;
+    if (event.path === "unset") eventPath = undefined;
     const worker = join(tempDir, "Runner.Worker");
     copyFileSync(spawnSync("bash", ["-c", "command -v bash"], { encoding: "utf8" }).stdout.trim(), worker);
     chmodSync(worker, 0o755);
-    const result = spawnSync(worker, ["-c", 'bash "$0"; echo "next step ran"', jobStarted], {
+    // closedOutput: the hook's stdout is a pipe nobody reads any more (a FIFO whose only reader is
+    // closed before the hook starts), so its first write raises SIGPIPE
+    const hook = event.closedOutput
+      ? 'mkfifo "$1" && exec 4<>"$1" 5>"$1" 4<&- && bash "$0" >&5; echo "next step ran"'
+      : 'bash "$0"; echo "next step ran"';
+    const result = spawnSync(worker, ["-c", hook, jobStarted, join(tempDir, "output.fifo")], {
       encoding: "utf8",
       timeout: 5_000,
-      env: { PATH: process.env.PATH ?? "", GITHUB_EVENT_NAME: eventName, GITHUB_EVENT_PATH: eventPath, GITHUB_REPOSITORY: "devswha/ovis" },
+      env: { PATH: process.env.PATH ?? "", GITHUB_EVENT_NAME: eventName, GITHUB_REPOSITORY: "devswha/ovis", ...(eventPath === undefined ? {} : { GITHUB_EVENT_PATH: eventPath }) },
     });
     expect(result.error).toBeUndefined();
     return result;
@@ -187,6 +195,25 @@ describe.skipIf(process.platform !== "linux")("self-hosted runner job-started ho
       // a failing hook alone would let `if: always()` steps run: the worker itself is killed
       expect(result.signal).toBe("SIGKILL");
       expect(result.stdout).toContain("::error::");
+      expect(result.stdout).not.toContain("next step ran");
+    }
+  });
+
+  it("refuses a job it cannot check: fails closed on an unreadable or broken event", () => {
+    const forkless = { ref: "refs/heads/main" };
+    for (const event of [
+      { path: "missing" },
+      { path: "directory" },
+      { path: "unset" },
+      { raw: '{"pull_request": {"head":' },
+      { raw: "not json" },
+      { raw: '{"pull_request": "someone/ovis"}' },
+      { path: "missing", closedOutput: true },
+    ] as const) {
+      const result = runJobStarted("push", forkless, event);
+      expect(result.signal).toBe("SIGKILL");
+      // a closed output takes the refusal with it: the kill alone is the evidence there
+      if (!("closedOutput" in event)) expect(result.stdout).toContain("::error::");
       expect(result.stdout).not.toContain("next step ran");
     }
   });
