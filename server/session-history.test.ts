@@ -8,6 +8,7 @@ import type { SessionHistoryAgent, SessionSnapshot } from "../shared/protocol.ts
 import { HEAD_BYTES, listSessions, MAX_ENTRIES, MAX_ROWS, MAX_STATS, MAX_WALK, SESSION_HISTORY_AGENTS } from "./session-history.ts";
 import { handleSessionHistoryRequest, handleSessionResumeRequest, type PaneProcesses, workspaceFolder } from "./session-history-routes.ts";
 import { claudeProjectDir, darwinProcess, forgetClaudeSessions } from "./claude-store.ts";
+import { slowMachinePath } from "./machine-api.ts";
 import type { ProcessRow } from "./windows-processes.ts";
 import { codexRolloutPath } from "./codex.ts";
 import rolloutHeaders from "./fixtures/codex-rollout-headers.json";
@@ -1238,6 +1239,30 @@ describe("GET /api/sessions/history", () => {
       const closed: string[] = [];
       const [status, json] = await answer(await resume({ workspace_id: "w1", pane_id: "p1", agent: "claude", session_id: ID(1), store_key: listed.sessions[0]!.resume!.source!.store_key }, { ...base, tabs: fakeTabs(closed) }));
       expect([status, json.error?.code, closed]).toEqual([409, "launch_store_unknown", ["t-new"]]);
+    });
+
+    it("gives the store check an idle window of its own after the start, and the PC proxy a budget for both", async () => {
+      // Bun closes a request idle for its timeout: the start (up to about 70 s) and the store check that
+      // follows (up to launchCheckMs) each get a fresh window, so the window is restarted between them
+      const home = newHome();
+      claudeStore(join(home, ".claude"), ID(1), "default store prompt");
+      const events: string[] = [];
+      const shell = async (paneId: string): Promise<PaneProcesses> => {
+        if (paneId === "p-new") events.push("check");
+        return { shell_pid: 1, foreground_processes: [{ pid: 1, name: "bash", argv: ["bash"] }] };
+      };
+      const table = async (): Promise<ProcessRow[]> => [{ pid: 1, parent: 0, path: "bash", commandLine: "bash" }];
+      const base = { stores: { home, env: {} }, snapshot: async () => snapshot(), paneProcesses: shell, table, launchSource: launchAbsent, launchCheckMs: 0 };
+      const listed = await (await handleSessionHistoryRequest(...request("workspace_id=w1&agent=claude&pane_id=p1"), { readOnly: false, ...base })).json() as ClaudeListing;
+      const tabs = {
+        create: async () => { events.push("create"); return { tab: { tab_id: "t-new", workspace_id: "w1" }, root_pane: { pane_id: "p-new" } } as unknown as Awaited<ReturnType<typeof import("./herdr/client.ts").tabCreate>>; },
+        start: async () => { events.push("start"); return { agent_started: true as const }; },
+        close: async () => { events.push("close"); },
+      };
+      await resume({ workspace_id: "w1", pane_id: "p1", agent: "claude", session_id: ID(1), store_key: listed.sessions[0]!.resume!.source!.store_key }, { ...base, tabs, extendTimeout: () => events.push("extend") });
+      expect(events).toEqual(["extend", "create", "start", "extend", "check", "close"]);
+      // a PC's resume goes through the proxy, which waits on both as long as a worktree's creation
+      expect(["sessions/resume", "worktree/create", "sessions/history", "tab/create"].map(slowMachinePath)).toEqual([true, true, false, false]);
     });
 
     it("closes a macOS resume whose Claude only looks exported to the listed store, and keeps one that writes there", async () => {

@@ -254,6 +254,8 @@ export async function handleSessionResumeRequest(request: Request, options: { re
     const created = await tabs.create({ workspaceId, cwd, ...(store.env === null ? {} : { env: store.env }) });
     const launched = await tabs.start(created.root_pane.pane_id, { kind: "claude", args: ["--resume", sessionId] });
     if (launched.agent_started) {
+      // the start can use most of the first idle window: the store check, which sends nothing, gets its own
+      options.extendTimeout?.();
       const landed = await startedStore(created.root_pane.pane_id, store.dir, options);
       if (landed === null) {
         await tabs.close(created.tab.tab_id);
