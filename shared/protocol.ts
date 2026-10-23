@@ -439,10 +439,7 @@ export interface TailscaleAccess {
 
 export type { PortalStatus } from "./portal.ts";
 
-/** GET /api/push: base64url VAPID public key, the `applicationServerKey` a browser subscribes with. */
-export interface PushKey {
-  readonly public_key: string;
-}
+export type { PushKey, PushPayload } from "./push.ts";
 
 /** One turn of a structured agent conversation (the chat lens source). */
 export interface ConversationTurn {
@@ -1017,22 +1014,6 @@ export interface PromptAnswer {
   step_index?: number;
   /** Unsent edits for the current OpenCode step, saved only when navigating back. */
   draft?: { option_indices: number[]; custom_text: string };
-}
-
-/**
- * The JSON inside every web push, decrypted by the device's service worker (public/sw.js)
- * and shown as a notification. `pane_id` is null for the enable-confirmation push; `tag`
- * is shared with the in-tab notification of the same pane, so one replaces the other.
- */
-export interface PushPayload {
-  /** Absent in legacy payloads means local. */
-  machine_id?: string;
-  pane_id: string | null;
-  /** The workspace the pane was last seen in, so the tap of an ended pane opens that workspace. Absent when not known. */
-  workspace_id?: string;
-  title: string;
-  body: string;
-  tag: string;
 }
 
 /** WebSocket at /ws
