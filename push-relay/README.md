@@ -79,8 +79,12 @@ t=..., k=...` header (RFC 8292) whose token names this relay's origin as its aud
   for 50 minutes; FCM refusing it makes the relay get a new one and send the push once more.
 - The answer is `201` once APNs or FCM takes the push. APNs saying the token is gone (`410`, or
   `400` with `BadDeviceToken` or `DeviceTokenNotForTopic`), or FCM saying so (`UNREGISTERED` or
-  `SENDER_ID_MISMATCH`), deletes every endpoint of that token and answers `410`, which the PC takes as an unsubscribe; an unknown endpoint is `404`, which it
-  takes the same way (another PC's next push to the token's endpoints gets it). APNs refusing the
+  `SENDER_ID_MISMATCH`), deletes that token's endpoints for the same service (for APNs, the same
+  environment) and answers `410`, which the PC takes as an unsubscribe; an unknown endpoint is
+  `404`, which it takes the same way (another PC's next push to the token's endpoints gets it).
+  Endpoints of the token in the other APNs environment, or for the other service, stay: APNs
+  answers `BadDeviceToken` to a production token sent to the sandbox, so a leaked token registered
+  once as the other environment cannot wipe the phone's real endpoints. APNs refusing the
   relay's provider token as expired or invalid makes the relay sign a new one and send the push
   once more. A
   body that no longer fits APNs' 4 KB once base64-encoded is `413`, a content encoding other than

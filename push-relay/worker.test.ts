@@ -205,11 +205,11 @@ describe("push relay: registration", () => {
 
   test(`deletes endpoints unused for ${ENDPOINT_TTL_SECONDS / 86_400} days, and only those`, async () => {
     const r = relay();
-    const start = Date.now();
+    // both registered 30 days ago; one is pushed to now, through the real push path
+    const start = Date.now() - 30 * 86_400_000;
     const pushed = await register(r, {}, new Date(start));
     const idle = await register(r, {}, new Date(start));
-    // pushed to 30 days later (a push sets used_at: "forwards the ciphertext..." checks it)
-    r.db.query("UPDATE endpoints SET used_at = ? WHERE id = ?").run(Math.floor(start / 1000) + 30 * 86_400, idOf(pushed));
+    expect((await r.handle(pushRequest(pushed).request)).status).toBe(201);
     await expire(r.env, new Date(start + ENDPOINT_TTL_SECONDS * 1000 - 1000));
     expect(r.rows()).toHaveLength(2);
     await expire(r.env, new Date(start + ENDPOINT_TTL_SECONDS * 1000 + 1000));
@@ -223,14 +223,17 @@ describe("push relay: pushes", () => {
   beforeEach(() => { r = relay(); });
 
   test("forwards the ciphertext untouched to APNs in a mutable-content push it cannot read", async () => {
-    const endpoint = await register(r);
     const now = new Date();
+    // a key ID of its own: the provider token cache is per isolate, and this test checks a fresh token's iat
+    const own = relay("KEYFORWARD1");
+    // registered an hour before the push, so the push is what sets used_at
+    const endpoint = await register(own, {}, new Date(now.getTime() - 3_600_000));
     const { request, body } = pushRequest(endpoint, { topic: "pane-w1-1" });
-    const response = await r.handle(request, now);
+    const response = await own.handle(request, now);
     expect(response.status).toBe(201);
     expect(response.headers.get("ttl")).toBe("43200");
-    expect(r.calls).toHaveLength(1);
-    const call = r.calls[0]!;
+    expect(own.calls).toHaveLength(1);
+    const call = own.calls[0]!;
     expect(call.url).toBe(`https://api.push.apple.com/3/device/${TOKEN}`);
     const nowSeconds = Math.floor(now.getTime() / 1000);
     expect(call.headers).toMatchObject({
@@ -243,10 +246,10 @@ describe("push relay: pushes", () => {
     expect(call.body).not.toMatch(/secret-project|Needs your input|w1-1"/);
     // the provider token is Apple's ES256 JWT, signed with the APNs key
     const jwt = decodeJwt(call.headers["authorization"]!.replace(/^bearer /, ""));
-    expect(jwt.header).toEqual({ alg: "ES256", kid: "KEY1234567" });
+    expect(jwt.header).toEqual({ alg: "ES256", kid: "KEYFORWARD1" });
     expect(jwt.claims).toEqual({ iss: "TEAM123456", iat: nowSeconds });
     expect(await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, apnsPair.publicKey, jwt.signature, new TextEncoder().encode(jwt.signed))).toBe(true);
-    expect(r.rows()[0]!["used_at"]).toBe(nowSeconds);
+    expect(own.rows()[0]!["used_at"]).toBe(nowSeconds);
   });
 
   test("maps urgency to APNs priority, a sandbox token to Apple's sandbox, and TTL 0 to deliver-now-or-never", async () => {
@@ -358,19 +361,34 @@ describe("push relay: pushes", () => {
     expect((await r.handle(pushRequest(endpoints[2]!).request, new Date(start.getTime() + RATE_WINDOW_SECONDS * 1000))).status).toBe(201);
   });
 
-  test("a token APNs calls gone deletes all its endpoints and answers 410, which the PC takes as an unsubscribe", async () => {
+  test("a token APNs calls gone deletes its endpoints in that environment and answers 410, which the PC takes as an unsubscribe", async () => {
     for (const [status, reason] of [[410, "Unregistered"], [410, "ExpiredToken"], [400, "BadDeviceToken"], [400, "DeviceTokenNotForTopic"]] as const) {
       const own = relay();
       const endpoint = await register(own);
       const sibling = await register(own, { vapid_key: otherPcKey.publicKey });
+      // the same token in the other APNs environment, and as an FCM token: not what APNs called gone
+      const sandbox = await register(own, { environment: "sandbox" });
+      const asFcm = await register(own, { service: "fcm" });
       const other = await register(own, { token: "b2".repeat(32) });
       own.answer(() => Response.json({ reason }, { status }));
       expect((await own.handle(pushRequest(endpoint).request)).status).toBe(410);
-      expect(own.rows().map((row) => row["id"])).toEqual([idOf(other)]);
+      expect(own.rows().map((row) => row["id"])).toEqual([idOf(sandbox), idOf(asFcm), idOf(other)]);
       expect((await own.handle(pushRequest(endpoint).request)).status).toBe(404);
       expect((await own.handle(pushRequest(sibling, { key: otherPcKey }).request)).status).toBe(404);
       expect(own.calls).toHaveLength(1);
     }
+  });
+
+  test("a leaked token registered in the other environment cannot wipe the phone's real endpoints", async () => {
+    // the phone's production endpoint, then someone with its token registers it as sandbox with their own key
+    const real = await register(r);
+    const planted = await register(r, { environment: "sandbox", vapid_key: otherPcKey.publicKey });
+    r.answer(() => Response.json({ reason: "BadDeviceToken" }, { status: 400 }));
+    expect((await r.handle(pushRequest(planted, { key: otherPcKey }).request)).status).toBe(410);
+    expect(r.rows().map((row) => row["id"])).toEqual([idOf(real)]);
+    r.answer(() => new Response(null, { status: 200 }));
+    expect((await r.handle(pushRequest(real).request)).status).toBe(201);
+    expect(r.calls.at(-1)!.url).toBe(`https://api.push.apple.com/3/device/${TOKEN}`);
   });
 
   test("any other APNs failure keeps the endpoint", async () => {
@@ -517,8 +535,9 @@ describe("push relay: Android (FCM)", () => {
   test("a token FCM calls gone deletes its FCM endpoints and answers 410, leaving any APNs ones", async () => {
     for (const [status, errorCode] of [[404, "UNREGISTERED"], [403, "SENDER_ID_MISMATCH"]] as const) {
       const r = relay();
-      const endpoint = await register(r, fcm);
-      const second = await register(r, { ...fcm, vapid_key: otherPcKey.publicKey });
+      // FCM endpoints with the token an APNs endpoint has too: only the FCM ones are gone
+      const endpoint = await register(r, { ...fcm, token: TOKEN });
+      const second = await register(r, { ...fcm, token: TOKEN, vapid_key: otherPcKey.publicKey });
       await register(r);
       r.answer(fcmError(status, errorCode));
       expect((await r.handle(pushRequest(endpoint).request)).status).toBe(410);

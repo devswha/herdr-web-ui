@@ -16,7 +16,8 @@
  *   rate-limited. The ciphertext goes on as it came: to APNs in a mutable-content push that the
  *   iOS app's Notification Service Extension decrypts, to FCM in a data message that the Android
  *   app decrypts. The relay never holds a key that could read it. APNs or FCM saying a token is
- *   gone deletes its endpoints and answers 410, which the PC takes as an unsubscribe.
+ *   gone deletes its endpoints for that service (and APNs environment) and answers 410, which the
+ *   PC takes as an unsubscribe.
  *
  * Per endpoint it keeps the token, its service and (for APNs) its environment, the pinned key, when the endpoint was
  * registered and last used, and the current rate window (schema.sql), and nothing else. An
@@ -304,6 +305,7 @@ async function push(request: Request, env: Env, id: string, nowSeconds: number, 
   }
 
   if (allowed.service === "fcm") return sendFcm(env, allowed.token, ciphertext, { urgent: request.headers.get("urgency") === "high", ttl, topic }, nowSeconds, send);
+  const environment = allowed.environment ?? "production";
 
   const deliver = async (): Promise<Response> => {
     const headers: Record<string, string> = {
@@ -316,7 +318,7 @@ async function push(request: Request, env: Env, id: string, nowSeconds: number, 
       "content-type": "application/json",
     };
     if (topic !== null) headers["apns-collapse-id"] = topic;
-    return send(`${APNS_HOSTS[allowed.environment ?? "production"]}/3/device/${allowed.token}`, { method: "POST", headers, body: payload, signal: AbortSignal.timeout(APNS_TIMEOUT_MS) });
+    return send(`${APNS_HOSTS[environment]}/3/device/${allowed.token}`, { method: "POST", headers, body: payload, signal: AbortSignal.timeout(APNS_TIMEOUT_MS) });
   };
   let apns: Response;
   let reason = "";
@@ -334,8 +336,11 @@ async function push(request: Request, env: Env, id: string, nowSeconds: number, 
   }
   if (apns.ok) return status(201, { ttl: String(ttl) });
   if (apns.status === 410 || (apns.status === 400 && GONE_REASONS.has(reason))) {
-    // the token is gone for every PC: all its endpoints go, and their next push is a 404
-    await env.DB.prepare("DELETE FROM endpoints WHERE token = ?").bind(allowed.token).run();
+    // the token is gone for every PC: all its endpoints in this APNs environment go, and their next
+    // push is a 404. Only this environment's: APNs calls a production token sent to the sandbox a
+    // BadDeviceToken, so a leaked token registered once as the other one must not wipe the real ones.
+    // An FCM row has no environment (schema.sql's CHECK), so it never matches.
+    await env.DB.prepare("DELETE FROM endpoints WHERE token = ? AND environment = ?").bind(allowed.token, environment).run();
     return status(410);
   }
   if (apns.status === 429) return status(429);
