@@ -58,19 +58,23 @@ describe("GET /api/pane/omo-tasks", () => {
 });
 
 describe("handleTasksRequest with an OmO session", () => {
-  it("answers the session's tasks from its records, and asks the Claude tracker nothing", async () => {
+  it("answers the session's tasks and workflows from its records on this PC's clock, and asks the Claude tracker nothing", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "ovis-tasks-omo-"));
     try {
       const dir = join(cwd, ".omo", "senpi-task", "tasks");
       mkdirSync(dir, { recursive: true });
       const started = new Date(Date.now() - 60_000).toISOString();
       writeFileSync(join(dir, "st_1.json"), JSON.stringify({ task_id: "st_1", parent_session_id: "session-1", host_pid: process.pid, status: "running", task_summary: "index the repo", started_at: started }));
+      const runs = join(cwd, ".omo", "senpi-task", "dag", "runs");
+      mkdirSync(runs, { recursive: true });
+      writeFileSync(join(runs, "dag_1.json"), JSON.stringify({ runId: "dag_1", parentSessionId: "session-1", name: "Bug-fix round", status: "running", nodes: [] }));
       const claudeAgents = { sessionOf: () => { throw new Error("not asked"); }, ensure: async () => { throw new Error("not asked"); } };
       const response = await handleTasksRequest(new Request("http://localhost/api/pane/omo-tasks?pane_id=w1:p1"), new URL("http://localhost/api/pane/omo-tasks?pane_id=w1:p1"), "/api/pane/omo-tasks", { omo: { sessionOf: (paneId) => paneId === "w1:p1" ? { cwd, sessionId: "session-1" } : null }, claudeAgents });
       expect(response?.status).toBe(200);
-      const body = await response!.json() as { tasks: { id: string; title: string; status: string }[]; runs: unknown[] };
+      const body = await response!.json() as { tasks: { id: string; title: string; status: string }[]; runs: { id: string; name: string; status: string }[]; server_time: string };
       expect(body.tasks.map((task) => [task.id, task.title, task.status])).toEqual([["st_1", "index the repo", "running"]]);
-      expect(body.runs).toEqual([]);
+      expect(body.runs.map((run) => [run.id, run.name, run.status])).toEqual([["dag_1", "Bug-fix round", "running"]]);
+      expect(Number.isFinite(Date.parse(body.server_time))).toBe(true);
       expect(await handleTasksRequest(new Request("http://localhost/api/pane/plan"), new URL("http://localhost/api/pane/plan"), "/api/pane/plan", { omo: { sessionOf: () => null }, claudeAgents })).toBeNull();
     } finally {
       rmSync(cwd, { recursive: true, force: true });
