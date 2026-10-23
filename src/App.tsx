@@ -2,7 +2,7 @@ import { type CSSProperties, type DragEvent, type ReactNode, useCallback, useEff
 import { Bell, Ellipsis, FolderOpen, Link, Menu, MessageSquare, PanelLeft, Search, SquareTerminal, X } from "lucide-react";
 
 import type { AgentStatus, ServerMessage, AccessRefusal, HealthAuth, HerdrPane, SessionHistoryAgent } from "../shared/protocol.ts";
-import { ApiError, authenticate, createTab, fetchHealth, fetchBridgeHealth, fetchMachines, fetchSession, pairDevice, routeMissing, sendTestPush, shareSeen, signOut, splitPane, verifySourceBoot, zoomPane, type HealthInfo } from "./lib/api.ts";
+import { ApiError, authenticate, createTab, fetchHealth, fetchBridgeHealth, fetchMachines, fetchSession, pairDevice, sendTestPush, shareSeen, signOut, splitPane, verifySourceBoot, zoomPane, type HealthInfo } from "./lib/api.ts";
 import { applyHealthRead, healthFreshness, machineHealth, type HealthBook } from "./lib/healthPresentation.ts";
 import { deviceLabel, takePairCode } from "./lib/phone.ts";
 import { alertPaneTitle, displayPaneTitle } from "./components/Sidebar.tsx";
@@ -97,6 +97,7 @@ import { canPlayAlertSound, playAlertSound, unlockAlertSound, type AlertSoundKin
 import { createAlertTurnPlayer } from "./lib/alertTurns.ts";
 import { dockPane, draggedPane, paneDragData, dropSide, otherSlot, PANE_DRAG_TYPE, sameTarget, slotSide, storedSplit, storeSplit, type SplitSide, type SplitSlot, type SplitState, type SplitTarget } from "./lib/split.ts";
 import { paneDrag } from "./lib/paneDrag.ts";
+import { useLayoutNotice, useLayoutRefused } from "./lib/useLayoutNotice.ts";
 import { PaneFollowContext } from "./lib/paneSubmitContext.ts";
 import { SplitDropPreview } from "./components/SplitDropPreview.tsx";
 import { CrashProbe, RegionCrash } from "./components/AppCrash.tsx";
@@ -283,13 +284,7 @@ export function App() {
   // what the app says about this PC beyond its herdr's capabilities: kept through one failed read, as the header's details are
   const shownHealth = localFreshness === "unavailable" ? null : health;
   const [error, setError] = useState<string | null>(null);
-  // a palette layout call a PC's bridge could not take: a line over the pane, gone after a moment as the tab strip's is
-  const [layoutNotice, setLayoutNotice] = useState<string | null>(null);
-  useEffect(() => {
-    if (!layoutNotice) return;
-    const timer = window.setTimeout(() => setLayoutNotice(null), 6000);
-    return () => window.clearTimeout(timer);
-  }, [layoutNotice]);
+  const { layoutNotice, setLayoutNotice } = useLayoutNotice();
   // null until the server has said whether it wants a token: the shell, and with it
   // the WebSocket, never mounts before that is known
   const [locked, setLocked] = useState<boolean | null>(null);
@@ -967,13 +962,7 @@ export function App() {
     setDrawerOpen(false);
   }, []);
 
-  // a layout call the palette made and the PC refused: a bridge from before the route says so
-  // over the pane (the tab's own menu has a line of its own); anything else is logged, as
-  // other background failures are
-  const layoutRefused = useCallback((what: string, err: unknown): void => {
-    if (routeMissing(err)) setLayoutNotice(t("This PC's bridge does not offer this yet"));
-    else console.warn(what, err);
-  }, [t]);
+  const layoutRefused = useLayoutRefused(setLayoutNotice, t);
 
   // a tapped notification focuses this window and names the pane (public/sw.js). A pane not known
   // yet waits as a link does (this also keeps a cold start's link, which the worker names again
