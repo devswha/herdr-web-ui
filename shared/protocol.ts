@@ -391,21 +391,7 @@ export interface UsageReport {
   readonly providers: readonly ProviderUsage[];
 }
 
-/** CLIProxyAPI management configuration: the management key never leaves the server. */
-export interface CLIProxyStatus {
-  readonly configured: boolean;
-  readonly url: string;
-  readonly ok: boolean;
-  readonly problem: string | null;
-}
-export type CLIProxyProvider = "claude" | "codex";
-export interface CLIProxyLogin {
-  readonly url: string;
-  readonly state: string;
-}
-export interface CLIProxyLoginStatus {
-  readonly status: "wait" | "ok" | "error";
-}
+export type { CLIProxyStatus, CLIProxyProvider, CLIProxyLogin, CLIProxyLoginStatus } from "./cliproxy.ts";
 
 /** How a request got in, when it did. */
 export type AccessVia = "local" | "tailscale" | "device" | "token" | "open";
