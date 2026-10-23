@@ -35,11 +35,9 @@ import { paletteOpenQuery } from "./lib/paletteSeed.ts";
 import { MachineContext } from "./lib/machineContext.tsx";
 import { MachineActionBanner, MachineSidebar } from "./components/MachineSidebar.tsx";
 import { SidebarResizer } from "./components/SidebarResizer.tsx";
-import { storedSidebarWidth } from "./lib/sidebarWidth.ts";
 import { receiveSeen } from "./lib/seenFinishes.ts";
 import { useSidebarActivityState } from "./lib/sidebarActivity.tsx";
 import { FilePanelResizer } from "./components/FilePanelResizer.tsx";
-import { FILE_PANEL_DOCK_QUERY, storedFilePanelWidth } from "./lib/filePanelWidth.ts";
 import { openPresentation, type FilePresentation } from "./lib/filePresentation.ts";
 import { MachineDialog } from "./components/MachineDialog.tsx";
 import { RowMenu, type RowMenuItem } from "./components/RowMenu.tsx";
@@ -91,7 +89,7 @@ import { useConnectionChip, useServerMessageHandler } from "./lib/useConnectionC
 import { markSelection, selectionStill, type SelectionMark } from "./lib/selectionMark.ts";
 import { followsHerdrFocus } from "./lib/followFocus.ts";
 import { useScreenWakeLock } from "./lib/wakeLock.ts";
-import { watchDrawerSwipe } from "./lib/edgeSwipe.ts";
+import { useSidebarLayout } from "./lib/useSidebarLayout.ts";
 import { Droplet } from "./components/Droplet.tsx";
 import { dropletAllows, endedTurn, seedStatuses, showDroplet, trackTurn, type DropletKind } from "./lib/droplet.ts";
 import { canPlayAlertSound, playAlertSound, unlockAlertSound, type AlertSoundKind } from "./lib/alertSound.ts";
@@ -362,13 +360,7 @@ export function App() {
   // App picked the selected pane itself because the one selected closed: it must not raise a
   // phone's keyboard (over the drawer the close was tapped in) until the user picks a pane or lens
   const [autoSelected, setAutoSelected] = useState(false);
-  // a phone opened by a link that says so starts with its drawer out (lib/deepLink.ts)
-  const [drawerOpen, setDrawerOpen] = useState(() => initialLink?.sidebar === "shown" && window.matchMedia?.("(min-width: 769px)").matches !== true);
-  const drawerOpenRef = useRef(drawerOpen); drawerOpenRef.current = drawerOpen;
-  // from 769px the drawer is a plain sidebar column and its toggle is hidden, so a drawer a
-  // narrow window opened must not come back (with its scrim) the next time the window narrows
-  const wideScreen = useMediaQuery("(min-width: 769px)");
-  useEffect(() => { if (wideScreen) setDrawerOpen(false); }, [wideScreen]);
+  const { drawerOpen, setDrawerOpen, drawerOpenRef, wideScreen, sidebarCollapsed, setSidebarCollapsed, sidebarWidth, setSidebarWidth, filePanelAvailable, filePanelWidth, setFilePanelWidth } = useSidebarLayout({ initialLink });
   // with a generation (lib/selectionMark.ts): a call that answers after the user opened another pane or PC leaves
   // the selection alone. Marked at commit, not in render: a render React throws away (Strict Mode, a replay)
   // must not move the generation on, and every reader runs from an event or a reply, after the commit
@@ -376,27 +368,6 @@ export function App() {
   useLayoutEffect(() => {
     selectionRef.current = markSelection(selectionRef.current, selectedMachineId, selectedPaneId);
   }, [selectedMachineId, selectedPaneId]);
-  // on a phone the drawer follows a swipe in from the left edge, and a swipe back (lib/edgeSwipe.ts)
-  useEffect(() => watchDrawerSwipe(() => drawerOpenRef.current, setDrawerOpen), []);
-  // Escape puts the open drawer away and goes no further: in the capture phase, so a terminal that kept the
-  // focus never receives it. A dialog or an IME composition on top keeps its own Escape
-  useEffect(() => {
-    const onEscape = (event: KeyboardEvent): void => {
-      if (event.key !== "Escape" || !drawerOpenRef.current || event.isComposing || event.keyCode === 229) return;
-      if (document.querySelector('[role="dialog"]')) return;
-      event.preventDefault();
-      event.stopPropagation();
-      setDrawerOpen(false);
-    };
-    window.addEventListener("keydown", onEscape, true);
-    return () => window.removeEventListener("keydown", onEscape, true);
-  }, []);
-  // a desktop opened by a link that says so starts with the sidebar collapsed, and the address says so while it is
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => initialLink?.sidebar === "hidden");
-  // the width the sidebar's edge was dragged to on this device; null is the density's own
-  const [sidebarWidth, setSidebarWidth] = useState(storedSidebarWidth);
-  const filePanelAvailable = useMediaQuery(FILE_PANEL_DOCK_QUERY);
-  const [filePanelWidth, setFilePanelWidth] = useState(storedFilePanelWidth);
   const [lens, setLens] = useState<{ key: string; view: PaneView }>({ key: "", view: "terminal" });
   // Explicit lens choices stay authoritative in this page even when storage cannot be written.
   const [viewPicks, setViewPicks] = useState<ReadonlyMap<string, PaneView>>(() => new Map());
