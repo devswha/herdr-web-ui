@@ -130,6 +130,8 @@ export function parseFallbackPrompt(agent: string, screen: string): InteractiveP
     const heading = lines.slice(headStart, headEnd).map((line) => cleanLine(line));
     const question = [...heading].reverse().find((line) => ASKED_RE.test(line)) ?? heading.at(-1);
     const choiceRows = new Set(selectionMenu.rows.map((row) => row.lineIndex));
+    const customRows = selectionMenu.rows.flatMap((row, index) => /^(?:\d+\.\s*)?Other \(type your own\)$/i.test(row.label) ? [index] : []);
+    const customIndex = customRows.length === 1 ? customRows[0]! : null;
     const choices = [
       ...selectionMenu.rows.map((row, index) => ({
         label: row.label,
@@ -142,10 +144,10 @@ export function parseFallbackPrompt(agent: string, screen: string): InteractiveP
       kind: "menu", fallback: true, title: "Waiting for your answer", question: question ?? "The agent is waiting for your answer.",
       body,
       options: choices.map(({ label }) => ({ label, description: null })),
-      multi_select: false, custom_option_index: null,
+      multi_select: false, custom_option_index: customIndex,
     }, {
       responder: "fallback-gjc-menu", menuLabels: choices.map(({ label }) => label), selectedIndex: selectionMenu.selectedIndex,
-      checkedOptionIndices: [], customMenuIndex: null, rejectWithEscapeIndex: null,
+      checkedOptionIndices: [], customMenuIndex: customIndex, rejectWithEscapeIndex: null,
       optionSteps: choices.map(({ steps }) => steps),
     }, steadyFields(question, body, steady.read)), choiceRows);
   }
@@ -272,6 +274,51 @@ function fallbackGjcSelectionMenu(agent: string, lines: string[], shown: number[
   const selectedIndex = rows.findIndex((row) => row.selected);
   if (rows.length < 2 || selectedIndex < 0 || rows.filter((row) => row.selected).length !== 1) return null;
   return { start, rows, selectedIndex };
+}
+
+/** The same framed question must still own the inline Other editor before any text is sent. */
+export function gjcCustomEditorMatches(screen: string, expected: ParsedPrompt, draft: string): boolean {
+  if (expected.responder !== "fallback-gjc-menu" || expected.customMenuIndex === null) return false;
+  const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
+  const shown = lines.flatMap((line, index) => cleanLine(line) && !isDivider(line) ? [index] : []);
+  const footer = "enter submit esc back to options ctrl+g external editor PgUp/PgDn: question · Wheel: transcript";
+  let footerStart = -1;
+  let footerEnd = -1;
+  for (let count = 1; count <= Math.min(3, shown.length); count++) {
+    const tail = shown.slice(-count);
+    if (normalizeText(tail.map((index) => cleanLine(lines[index]!)).join(" ")) === footer) {
+      footerStart = tail[0]!;
+      footerEnd = tail.at(-1)!;
+      break;
+    }
+  }
+  if (footerStart < 0) return false;
+  const input = findLastIndex(lines.slice(0, footerStart), (line) => /^>(?:\s|$)/.test(cleanLine(line)));
+  if (input < 0) return false;
+  const editorLines = lines.slice(input, footerStart).map((line) => cleanLine(line));
+
+  if (/[\r\n]/.test(draft)) return false;
+  editorLines[0] = editorLines[0]!.replace(/^> ?/, "");
+  while (editorLines.length > 1 && editorLines.at(-1) === "") editorLines.pop();
+  // Like claudeRestoredDraft, walk exact row contents: a soft wrap can split a word or
+  // consume one separating space. Do not flatten internal whitespace or accept missing text.
+  const text = draft.normalize("NFC").replace(/\t/g, "    ");
+  let positions = new Set([0]);
+  for (const [index, row] of editorLines.entries()) {
+    const next = new Set<number>();
+    for (const from of positions) {
+      const starts = index > 0 && text[from] === " " ? [from, from + 1] : [from];
+      for (const start of starts) if (text.startsWith(row, start)) next.add(start + row.length);
+    }
+    positions = next;
+  }
+  if (!positions.has(text.length)) return false;
+  const restored = [...lines.slice(0, input), "↑/↓ select enter esc PgUp/PgDn/Ctrl+u/d: question · Wheel: transcript", ...lines.slice(footerEnd + 1)].join("\n");
+  const prompt = parseFallbackPrompt("gjc", restored);
+  const parsed = parsedByPublicPrompt.get(prompt);
+  return parsed?.responder === expected.responder && parsed.selectedIndex === expected.customMenuIndex
+    && prompt.question === expected.question && prompt.body === expected.body
+    && JSON.stringify(prompt.options) === JSON.stringify(expected.options);
 }
 
 export const readers: readonly DialogReader[] = [
