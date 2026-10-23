@@ -715,7 +715,8 @@ Detect changes, the Integration and browser summary, the Windows and macOS jobs,
 
 In `ci.yml`, Detect changes picks the runner with `scripts/ci-runner-route.sh`. A fork pull request
 always gets `ubuntu-24.04`, whatever the variable says. Since that script runs from the pull
-request's own revision, the runner also refuses fork code itself before any step runs
+request's own revision, the runner also refuses fork code itself: its job-started hook kills the
+job's worker before any step, `if: always()` ones included, can run
 (`scripts/self-hosted-runner/job-started.sh`). Otherwise the `self_hosted_labels`
 workflow_dispatch input, when not empty, overrides the variable for that one manual run. A value
 that is not a non-empty array of strings containing `"self-hosted"` fails the job instead of
