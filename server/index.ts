@@ -5,16 +5,15 @@ import { ClientConnectionLog } from "./client-connection-log.ts";
 import { RequestLog } from "./request-log.ts";
 import { handlePaneRequest } from "./pane-routes.ts";
 import { handleIntegrationsRequest } from "./integrations-routes.ts";
-import { paneContext, resolveAgent } from "./pane-context.ts";
 import { randomBytes, randomUUID } from "node:crypto";
 import { OrderSequence } from "./order-sequence.ts";
 import { readHerdrProfiles, type HerdrMachineProfile } from "./herdr-profiles.ts";
 import { accessSync, constants, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import type { HealthAuth, PendingMessage, ProjectFavicon } from "../shared/protocol.ts";
+import type { HealthAuth, PendingMessage } from "../shared/protocol.ts";
 import { DEFAULT_PORT } from "../shared/protocol.ts";
-import { authClient, deviceCookieValue, bearerMatches, handleAuthRequest, isAuthenticated, isSecureRequest, parseCookies, presentedToken, presentedTokenHeld, recordPresentedTokenFailure, requiresAuth, unauthorizedJson } from "./auth.ts";
+import { authClient, deviceCookieValue, bearerMatches, handleAuthRequest, isAuthenticated, parseCookies, presentedToken, presentedTokenHeld, recordPresentedTokenFailure, requiresAuth, unauthorizedJson } from "./auth.ts";
 import { cameThroughProxy, decideAccess, isLoopbackAddress, isLoopbackBind, isServeOwnerRequest, lanExposed } from "./access.ts";
 import { DeviceStore, handleDeviceRequest, type DeviceMatch } from "./devices.ts";
 import { handlePreferencesRequest, PreferenceStore } from "./preferences.ts";
@@ -23,17 +22,14 @@ import { remoteAccess, TailnetIdentitySource } from "./tailscale.ts";
 import { badRequest, errorResponse, jsonResponse, setRequestRoute } from "./http.ts";
 import { requestOrigin, serveStatic } from "./static.ts";
 import { compressResponse } from "./compress.ts";
-import { claudePaneSession } from "./conversation.ts";
 import { handleTasksRequest } from "./tasks-routes.ts";
 import { handlePlanRequest } from "./plan-routes.ts";
 import { ShellAgentLocator } from "./shell-agent.ts";
 import { handleAgentsRequest } from "./agents-routes.ts";
-import { claudeSessionTempDir } from "./claude-store.ts";
-import { fileResponse, findFile, crossSiteFileRead, forgetPageMedia, pageMediaResponse, pageMediaSource, PAGE_MEDIA_PATH } from "./file-view.ts";
-import { findProjectFavicon } from "./project-favicon.ts";
+import { forgetPageMedia } from "./file-view.ts";
+import { handleFileRequest } from "./file-routes.ts";
 import {
   herdrSocketPath,
-  paneGet,
   ping,
 } from "./herdr/client.ts";
 import { type AlertTiming, defaultStateDir, handlePushRequest } from "./push.ts";
@@ -87,16 +83,6 @@ export const SUBMIT_DEADLINE_MS = 45_000;
 const DRAFT_CLEAR_WAIT_MS = 1_500;
 const DRAFT_CLEAR_POLL_MS = 50;
 
-
-/** The temp folder of the Claude Code session in a pane, or null when the pane runs none or it has none. */
-async function claudeTempFolder(paneId: string): Promise<string | null> {
-  try {
-    const pane = await paneGet(paneId);
-    if (resolveAgent(pane).agent !== "claude") return null;
-    const session = await claudePaneSession(pane);
-    return session === null ? null : await claudeSessionTempDir(session.path);
-  } catch { return null; /* herdr busy or the pane gone: the path stays not found */ }
-}
 
 /**
  * What Bun.serve admits before a route runs (64 MiB). The ~55.9 MB body of a 40 MiB file is under it,
@@ -497,41 +483,8 @@ export function createServer(
       const integrationsResponse = await handleIntegrationsRequest(request, pathname);
       if (integrationsResponse) return integrationsResponse;
 
-      if (pathname === "/api/fs/stat" || pathname === "/api/fs/file" || pathname === "/api/fs/favicon") {
-        setRequestRoute(pathname);
-        if (request.method !== "GET" && request.method !== "HEAD") return badRequest("method_not_allowed", "use GET");
-        if (crossSiteFileRead(request)) return jsonResponse({ error: { code: "cross_site", message: "A file is read from this app or opened in a tab, not loaded by another page" } }, 403);
-        // a folder's project icon: every place it may be kept, in one answer that a miss is part of
-        if (pathname === "/api/fs/favicon") {
-          const root = url.searchParams.get("root") ?? "";
-          if (root.trim() === "") return badRequest("missing_root", "root is required");
-          return jsonResponse({ icon: await findProjectFavicon(root) } satisfies ProjectFavicon);
-        }
-        const paneId = url.searchParams.get("pane_id");
-        let cwd: string | null = null;
-        if (paneId) {
-          try { cwd = (await paneContext(paneId)).cwd; } catch { /* an absolute path still opens */ }
-        }
-        const path = url.searchParams.get("path") ?? "";
-        const found = await findFile(path, cwd, () => paneId ? claudeTempFolder(paneId) : Promise.resolve(null));
-        if (found === null) return jsonResponse({ error: { code: "not_found", message: "no readable file at that path" } }, 404);
-        // several files end in that name: the viewer lists them to choose from
-        if ("candidates" in found) return jsonResponse({ error: { code: "ambiguous_path", message: "several files have that name", candidates: found.candidates } }, 409);
-        // a page another PC's server asks for through its bridge is played from that server's address, which this one cannot name: it is drawn as before
-        const mediaSource = bridgeAuthorized ? null : pageMediaSource(requestHost, isSecureRequest(request), forwarded ? request.headers.get("x-forwarded-host") : null);
-        // its media plays only for the client address that rendered it, and ends with that device (file-view.ts)
-        const media = mediaSource === null ? null : { source: mediaSource, client, device: access.level === "full" ? access.device?.id ?? null : null };
-        return pathname === "/api/fs/stat" ? jsonResponse(found.info) : fileResponse(found.info, url.searchParams.get("download") === "1", url.searchParams.get("render") === "1", media);
-      }
-
-      // a rendered page's own video, by the address its render gave it: the page has no origin and
-      // no cookie, so the address is all it holds (requiresAuth lets this path through)
-      if (pathname.startsWith(PAGE_MEDIA_PATH)) {
-        setRequestRoute("/api/fs/page-media/:media_id");
-        if (request.method !== "GET" && request.method !== "HEAD") return badRequest("method_not_allowed", "use GET");
-        const media = pageMediaResponse(pathname.slice(PAGE_MEDIA_PATH.length), client);
-        return media ?? jsonResponse({ error: { code: "not_found", message: "no such page media" } }, 404);
-      }
+      const filesResponse = await handleFileRequest(request, url, pathname, { bridgeAuthorized, requestHost, forwarded, client, access });
+      if (filesResponse) return filesResponse;
 
       const workspaceResponse = await handleWorkspaceRequest(request, url, pathname, bunServer, broadcastAll, queueFirstMessage, () => {
         // the receipt first, then the roster read that can show it: not waited for, and its failure changes no answer
