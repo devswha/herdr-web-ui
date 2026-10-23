@@ -139,6 +139,89 @@ describe("codex daemon skills", () => {
     expect(await paneDaemonHome("any-pane", undefined, "win32")).toBeNull();
   });
 
+  it("uses the first CODEX_HOME when the Linux environment repeats it", async () => {
+    // Given a process environment with different duplicate values.
+    const processFiles = {
+      lookup: async () => ({ pid: process.pid }),
+      environ: () => ["CODEX_HOME=/first/codex", "CODEX_HOME=/last/codex", "HOME=/fallback"],
+    };
+    // When the pane's daemon home is read.
+    const home = await paneDaemonHome("any-pane", undefined, "linux", processFiles);
+    // Then it agrees with getenv's first occurrence.
+    expect(home).toBe("/first/codex");
+  });
+
+  it("uses the first HOME when the Linux environment repeats it", async () => {
+    // Given no CODEX_HOME and distinct duplicate HOME values.
+    const processFiles = {
+      lookup: async () => ({ pid: process.pid }),
+      environ: () => ["HOME=/first/home", "HOME=/last/home"],
+    };
+    // When the pane's daemon home is read.
+    const home = await paneDaemonHome("any-pane", undefined, "linux", processFiles);
+    // Then the default belongs to the first HOME.
+    expect(home).toBe("/first/home/.codex");
+  });
+
+  it("resolves a relative CODEX_HOME against the Linux process cwd", async () => {
+    // Given a process cwd different from the server's and a relative CODEX_HOME.
+    const processFiles = {
+      lookup: async () => ({ pid: 123 }),
+      environ: () => ["CODEX_HOME=relative-codex", "HOME=/fallback"],
+      cwd: async (pid: number) => {
+        expect(pid).toBe(123);
+        return "/codex/process";
+      },
+    };
+    // When the pane's daemon home is read.
+    const home = await paneDaemonHome("any-pane", undefined, "linux", processFiles);
+    // Then the result is absolute, as seen by that process.
+    expect(home).toBe("/codex/process/relative-codex");
+  });
+
+  it.skipIf(process.platform !== "linux")("reads the Linux process cwd from proc for a relative CODEX_HOME", async () => {
+    // Given this test process has a readable /proc cwd.
+    const processFiles = {
+      lookup: async () => ({ pid: process.pid }),
+      environ: () => ["CODEX_HOME=relative-codex"],
+    };
+    // When the real cwd reader resolves the relative home.
+    const home = await paneDaemonHome("any-pane", undefined, "linux", processFiles);
+    // Then the home is rooted at this process's directory.
+    expect(home).toBe(join(realpathSync(`/proc/${process.pid}/cwd`), "relative-codex"));
+  });
+
+  it("returns null when a relative CODEX_HOME has an unreadable Linux process cwd", async () => {
+    // Given /proc/0/cwd cannot identify a process directory.
+    const processFiles = {
+      lookup: async () => ({ pid: 0 }),
+      environ: () => ["CODEX_HOME=relative-codex", "HOME=/fallback"],
+    };
+    // When the home would require that directory.
+    const home = await paneDaemonHome("any-pane", undefined, "linux", processFiles);
+    // Then neither the server cwd nor HOME substitutes for it.
+    expect(home).toBeNull();
+  });
+
+  it.each([
+    { environ: ["CODEX_HOME=/absolute/codex"], expected: "/absolute/codex" },
+    { environ: ["CODEX_HOME=", "CODEX_HOME=/ignored", "HOME=/fallback"], expected: "/fallback/.codex" },
+    { environ: ["HOME=", "HOME=/ignored"], expected: null },
+    { environ: [], expected: null },
+    { environ: null, expected: null },
+  ])("uses Linux home $expected without reading cwd for $environ", async ({ environ, expected }) => {
+    // Given an absolute home, default home, or unavailable environment.
+    const processFiles = {
+      lookup: async () => ({ pid: 0 }),
+      environ: () => environ,
+      cwd: async () => { throw new Error("cwd must not be read"); },
+    };
+    // When the pane's daemon home is read.
+    const home = await paneDaemonHome("any-pane", undefined, "linux", processFiles);
+    // Then cwd is irrelevant to the selected home.
+    expect(home).toBe(expected);
+  });
+
   it("gives native skill rows, enabled ones only, and sends nothing but initialize and skills/list", async () => {
     const fake = fakeDaemon({ skills: [skill("alpha"), skill("off", { enabled: false }), skill("beta", { scope: "repo" }), skill("plug", { pluginId: "p@m" })] });
     const rows = await ask(source(fake.home));

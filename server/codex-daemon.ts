@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { lstat, readlink, realpath } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 
 import type { SlashCommand } from "../shared/protocol.ts";
 import { registerCatalogSource } from "./catalog-sources.ts";
@@ -432,15 +432,24 @@ export function closeCodexDaemonSources(): void {
  * process's CODEX_HOME, else that process's HOME/.codex. Read from /proc only (no process is started
  * for it); null when it cannot be read (another platform, no Codex process, an unreadable environment).
  */
-export async function paneDaemonHome(paneId: string, configured?: string, platform = process.platform): Promise<string | null> {
+export async function paneDaemonHome(paneId: string, configured?: string, platform = process.platform, processFiles: {
+  readonly lookup: typeof paneCodexProcess;
+  readonly environ: (pid: number) => readonly string[] | null;
+  readonly cwd?: (pid: number) => Promise<string>;
+} = { lookup: paneCodexProcess, environ: processEnviron }): Promise<string | null> {
   if (configured) return configured;
   if (platform !== "linux") return null;
-  const codex = await paneCodexProcess(paneId).catch(() => null);
-  const environ = codex ? processEnviron(codex.pid) : null;
+  const codex = await processFiles.lookup(paneId).catch(() => null);
+  if (!codex) return null;
+  const environ = processFiles.environ(codex.pid);
   if (!environ) return null;
-  const value = (key: string): string | null => environ.filter((word) => word.startsWith(`${key}=`)).at(-1)?.slice(key.length + 1) || null;
+  const value = (key: string): string | null => environ.find((word) => word.startsWith(`${key}=`))?.slice(key.length + 1) || null;
   const own = value("CODEX_HOME");
   const home = value("HOME");
+  if (own && !isAbsolute(own)) {
+    const cwd = await (processFiles.cwd ? processFiles.cwd(codex.pid) : readlink(`/proc/${codex.pid}/cwd`)).catch(() => null);
+    return cwd ? resolve(cwd, own) : null;
+  }
   return own ?? (home ? join(home, ".codex") : null);
 }
 
