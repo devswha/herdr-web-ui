@@ -7,6 +7,7 @@ import { join } from "node:path";
 import type { CatalogPane } from "./catalog-sources.ts";
 import { mergeCatalogSources } from "./catalog-sources.ts";
 import { closeCodexDaemonSources, createCodexDaemonSource, DaemonConnection, paneDaemonHome } from "./codex-daemon.ts";
+import { processEnviron } from "./omo.ts";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -222,6 +223,29 @@ describe("codex daemon skills", () => {
     const home = await paneDaemonHome("any-pane", undefined, "linux", processFiles);
     // Then neither the server cwd nor HOME substitutes for it.
     expect(home).toBeNull();
+  });
+
+  it.skipIf(process.platform !== "linux")("returns null when a live process's CODEX_HOME is its deleted cwd", async () => {
+    // Given a live child whose CODEX_HOME names its removed working directory.
+    const root = temp("codex-home-deleted-");
+    const cwd = join(root, "gone");
+    mkdirSync(cwd);
+    const child = Bun.spawn(["sleep", "60"], {
+      cwd, env: { ...process.env, CODEX_HOME: "." }, stdout: "ignore", stderr: "ignore",
+    });
+    try {
+      rmSync(cwd, { recursive: true });
+      // When discovering the home from the live child's real /proc files.
+      const home = await paneDaemonHome("any-pane", undefined, "linux", {
+        lookup: async () => ({ pid: child.pid }),
+        environ: processEnviron,
+      });
+      // Then an unlinked directory cannot supply a daemon home.
+      expect(home).toBeNull();
+    } finally {
+      child.kill();
+      await child.exited;
+    }
   });
 
   it.each([

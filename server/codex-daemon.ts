@@ -453,7 +453,10 @@ export async function paneDaemonHome(paneId: string, configured?: string, platfo
     // Bun realpath normalizes ".." before following links. Let the kernel traverse the raw
     // path first; Linux O_PATH (0x200000) needs no directory read permission.
     const directory = await open(`${base}/${own}`, 0x200000 | constants.O_DIRECTORY);
-    try { return await realpath(`/proc/self/fd/${directory.fd}`); }
+    try {
+      const canonical = await realpath(`/proc/self/fd/${directory.fd}`);
+      return (await directory.stat()).nlink === 0 ? null : canonical;
+    }
     finally { await directory.close(); }
   } catch { return null; }
 }
