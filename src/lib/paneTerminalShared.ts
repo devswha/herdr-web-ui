@@ -22,3 +22,5 @@ export const plainError = (cause: unknown): string => {
   const failure = userErrorMessage(cause);
   return failure.detail === null ? failure.message : `${failure.message} (${failure.detail})`;
 };
+
+export type StillOpen = { pane: string; agent: string; command: string; named: boolean; history: string | undefined };
