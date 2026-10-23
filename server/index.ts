@@ -12,7 +12,7 @@ import { readHerdrProfiles, type HerdrMachineProfile } from "./herdr-profiles.ts
 import { accessSync, constants, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import type { HealthAuth, HerdrPane, PanePlan, PendingMessage, ProjectFavicon } from "../shared/protocol.ts";
+import type { HealthAuth, PendingMessage, ProjectFavicon } from "../shared/protocol.ts";
 import { DEFAULT_PORT } from "../shared/protocol.ts";
 import { authClient, deviceCookieValue, bearerMatches, handleAuthRequest, isAuthenticated, isSecureRequest, parseCookies, presentedToken, presentedTokenHeld, recordPresentedTokenFailure, requiresAuth, unauthorizedJson } from "./auth.ts";
 import { cameThroughProxy, decideAccess, isLoopbackAddress, isLoopbackBind, isServeOwnerRequest, lanExposed } from "./access.ts";
@@ -25,7 +25,7 @@ import { requestOrigin, serveStatic } from "./static.ts";
 import { compressResponse } from "./compress.ts";
 import { claudePaneSession } from "./conversation.ts";
 import { handleTasksRequest } from "./tasks-routes.ts";
-import { within } from "./claude-subagents.ts";
+import { handlePlanRequest } from "./plan-routes.ts";
 import { ShellAgentLocator } from "./shell-agent.ts";
 import { handleAgentsRequest } from "./agents-routes.ts";
 import { claudeSessionTempDir } from "./claude-store.ts";
@@ -35,7 +35,6 @@ import {
   herdrSocketPath,
   paneGet,
   ping,
-  sessionSnapshot,
 } from "./herdr/client.ts";
 import { type AlertTiming, defaultStateDir, handlePushRequest } from "./push.ts";
 import { moveLegacyStateDir } from "./update-state.ts";
@@ -551,27 +550,8 @@ export function createServer(
       const tasksResponse = await handleTasksRequest(request, url, pathname, { omo, claudeAgents });
       if (tasksResponse) return tasksResponse;
 
-      if (pathname === "/api/pane/plan") {
-        setRequestRoute(pathname);
-        if (request.method !== "GET") return badRequest("method_not_allowed", "use GET");
-        const paneId = url.searchParams.get("pane_id");
-        if (!paneId) return badRequest("missing_pane_id", "pane_id query parameter is required");
-        // the pane as herdr has it now, for a second at most: one the background lookup has not got to yet is looked
-        // up here, and so is one that runs another session than the one its transcript was found for.
-        // Herdr may name an OmO pane `claude`: use its resolved identity before looking up a plan.
-        const seen: { pane?: HerdrPane } = {};
-        await within(1000, (async () => {
-          const pane = seen.pane = omo.apply(await sessionSnapshot()).panes.find((candidate) => candidate.pane_id === paneId);
-          if (pane === undefined || plans.known(pane)) return;
-          if (pane.agent === "claude") await claudeAgents.ensure(pane);
-          await plans.ensure(pane, true);
-        })());
-        // only the pane as herdr has it now is told its plan: one herdr did not answer for in time, no longer has, or has
-        // in a session not looked up yet is told none, never the plan read before (session-plan.ts planOf)
-        const steps = plans.planOf(seen.pane);
-        const answer: PanePlan = { plan: steps === null ? null : { steps }, server_time: new Date().toISOString() };
-        return jsonResponse(answer);
-      }
+      const planResponse = await handlePlanRequest(request, url, pathname, { omo, claudeAgents, plans });
+      if (planResponse) return planResponse;
 
       if (pathname === SESSION_HISTORY_PATH) {
         setRequestRoute(SESSION_HISTORY_PATH);
