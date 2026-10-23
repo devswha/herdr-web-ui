@@ -80,7 +80,7 @@ import { markSelection, selectionStill, type SelectionMark } from "./lib/selecti
 import { followsHerdrFocus } from "./lib/followFocus.ts";
 import { useScreenWakeLock } from "./lib/wakeLock.ts";
 import { useSidebarLayout } from "./lib/useSidebarLayout.ts";
-import { useAlerts } from "./lib/useAlerts.ts";
+import { alertsBell, useAlertPrefs, useAlertRefs, useAlertSignals, useNotificationState, useNotificationSwitch } from "./lib/useAlerts.ts";
 import { Droplet } from "./components/Droplet.tsx";
 import { dockPane, draggedPane, paneDragData, dropSide, otherSlot, PANE_DRAG_TYPE, sameTarget, slotSide, storedSplit, storeSplit, type SplitSide, type SplitSlot, type SplitState, type SplitTarget } from "./lib/split.ts";
 import { paneDrag } from "./lib/paneDrag.ts";
@@ -210,6 +210,7 @@ export function App() {
   const t = useT();
   const apple = /Mac|iPhone|iPad/.test(navigator.platform);
   const { settings, resolvedTheme, resolvedEntry, update: updateSettings } = useSettings();
+  const { alerts, alertsRef, alertsOn, alertsOnRef } = useAlertPrefs({ settings });
   const [machines, setMachines] = useState<Machine[]>([]);
   const [machineRosterLoaded, setMachineRosterLoaded] = useState(false);
   // the place the address names, read once at load: a link wins over this window's last selection
@@ -473,7 +474,7 @@ export function App() {
   // the earlier sessions of a workspace's folder (components/SessionHistory.tsx), while open
   const [sessionHistory, setSessionHistory] = useState<{ machineId: string; workspaceId: string; agent: SessionHistoryAgent; paneId: string | null; askingPaneId: string | null; selectedPaneId: string | null } | null>(null);
   const { connected, setConnected, connectedBefore, setConnectedBefore, paneLost, outputStopped, setOutputStopped } = useConnectionChip();
-  const { dropIn, chime, enableNotifications, setPushOn, bell, bellVisible, alertsOffDot, onRoster, onPaneStatus, onPaneExited } = useAlerts({ settings, updateSettings, t, locked, selectionRef, drawerOpenRef, splitRef, splitShownRef, machinesRef });
+  const { notifications, setNotifications, pushOn, setPushOn, pushOnRef } = useNotificationState();
   // the shared settings and pins, the same in every browser of this server, once the app is in
   const { receive: receivePreferences, saveError: settingsSaveError, paused: settingsSavePaused, retrying: settingsSaveRetrying, retry: retrySettingsSave, resubscribed: preferencesResubscribed, disconnected: preferencesDisconnected, closed: preferencesClosed } = usePreferencesSync(locked === false);
   const receivePreferencesRef = useRef(receivePreferences); receivePreferencesRef.current = receivePreferences;
@@ -482,6 +483,7 @@ export function App() {
   const preferencesClosedRef = useRef(preferencesClosed); preferencesClosedRef.current = preferencesClosed;
   const lockedRef = useRef(locked);
   lockedRef.current = locked;
+  const { statusRef, turnStartRef, lastTurnRef, alertInAppRef, alertSoundRef } = useAlertRefs({ settings });
   const followFocusRef = useRef(settings.followHerdrFocus);
   followFocusRef.current = settings.followHerdrFocus;
   const refetchTimer = useRef<number | null>(null);
@@ -567,6 +569,7 @@ export function App() {
     if (refetchTimer.current !== null) window.clearTimeout(refetchTimer.current);
   }, []);
 
+  const { dropIn, chime, onRoster, onPaneStatus, onPaneExited } = useAlertSignals({ settings, selectionRef, drawerOpenRef, splitRef, splitShownRef, machinesRef, alertsRef, alertsOnRef, pushOnRef, statusRef, turnStartRef, lastTurnRef, alertInAppRef, alertSoundRef });
 
   // One SSE subscription watches every PC, even when no terminal is selected.
   useEffect(() => {
@@ -637,6 +640,7 @@ export function App() {
 
   const handleServerMessage = useServerMessageHandler(setOutputStopped);
 
+  const { enableNotifications, disableNotifications } = useNotificationSwitch({ updateSettings, locked, notifications, setNotifications, alerts, alertsRef, alertsOn, setPushOn });
 
   const unlock = useCallback(() => {
     setLocked(false);
@@ -1166,6 +1170,7 @@ export function App() {
   }, []);
 
 
+  const { bell, bellVisible, alertsOffDot } = alertsBell({ t, settings, alertsOn, notifications, pushOn, enableNotifications, disableNotifications });
   const connWord = t(connected ? "live" : outputStopped ? "disconnected" : connectedBefore ? "reconnecting" : "connecting");
   const crumb = selectedPane && selectedTitle !== null
     ? headerCrumb({ machine: selectedMachine?.name ?? selectedMachineId, machineCount: machines.length, workspace: selectedWorkspace?.label ?? selectedPane.workspace_id, title: selectedTitle, cwd: selectedPane.cwd })

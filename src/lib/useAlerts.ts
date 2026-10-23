@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from "react";
 import type { AgentStatus, HerdrPane, ServerMessage } from "../../shared/protocol.ts";
+import type { AlertPrefs } from "../../shared/notify-policy.ts";
 import { paneStorageId, type Machine } from "../../shared/machines.ts";
 import { sendTestPush } from "./api.ts";
 import { alertPaneTitle } from "../components/Sidebar.tsx";
@@ -23,18 +24,6 @@ import { canPlayAlertSound, playAlertSound, unlockAlertSound, type AlertSoundKin
 import { createAlertTurnPlayer } from "./alertTurns.ts";
 import { sameTarget, type SplitState } from "./split.ts";
 
-export interface AlertsParams {
-  settings: Settings;
-  updateSettings: (patch: Partial<Settings>) => void;
-  t: Translate;
-  locked: boolean | null;
-  selectionRef: RefObject<SelectionMark>;
-  drawerOpenRef: RefObject<boolean>;
-  splitRef: RefObject<SplitState | null>;
-  splitShownRef: RefObject<boolean>;
-  machinesRef: RefObject<Machine[]>;
-}
-
 type PaneStatusMessage = Extract<ServerMessage, { type: "pane-status" }>;
 type PaneExitedMessage = Extract<ServerMessage, { type: "pane-exited" }>;
 type TakeNotificationTargetRef = RefObject<(target: NotificationTarget) => unknown>;
@@ -45,8 +34,8 @@ const alerting = (list: Machine[]) => list.map((machine) => ({
   snapshot: machine.snapshot && { panes: machine.snapshot.panes.map((pane) => ({ pane_id: pane.pane_id, agent_status: alertStatus(pane.agent_status, (pane as HerdrPane).background_wait) })) },
 }));
 
-/** Keeps this device's notification and alert state, and what the event stream does with a status change. */
-export function useAlerts({ settings, updateSettings, t, locked, selectionRef, drawerOpenRef, splitRef, splitShownRef, machinesRef }: AlertsParams) {
+/** This device's alert choices and its Alerts switch, with refs for the event stream. */
+export function useAlertPrefs({ settings }: { settings: Settings }) {
   // this device's alert choices: sent with its push subscription, and applied to tab alerts here
   const alerts = useMemo(() => alertPrefs(settings), [settings.alertInput, settings.alertDone]);
   const alertsRef = useRef(alerts);
@@ -55,11 +44,21 @@ export function useAlerts({ settings, updateSettings, t, locked, selectionRef, d
   const alertsOn = settings.alertsOn;
   const alertsOnRef = useRef(alertsOn);
   alertsOnRef.current = alertsOn;
+  return { alerts, alertsRef, alertsOn, alertsOnRef };
+}
+
+/** The browser's notification permission and whether this device has a push subscription. */
+export function useNotificationState() {
   const [notifications, setNotifications] = useState<NotificationState>(() => notificationState());
   // this device has a server-side push subscription: alerts come from the server, not the tab
   const [pushOn, setPushOn] = useState(false);
   const pushOnRef = useRef(pushOn);
   pushOnRef.current = pushOn;
+  return { notifications, setNotifications, pushOn, setPushOn, pushOnRef };
+}
+
+/** The per-pane turn bookkeeping and the in-app alert and sound switches, as refs. */
+export function useAlertRefs({ settings }: { settings: Settings }) {
   // last-seen agent status per pane: the baseline that decides whether a push is news
   const statusRef = useRef<Map<string, AgentStatus>>(new Map());
   // when each pane's turn began, so an in-app alert knows a long turn from a quick one
@@ -70,6 +69,28 @@ export function useAlerts({ settings, updateSettings, t, locked, selectionRef, d
   alertInAppRef.current = settings.alertInApp;
   const alertSoundRef = useRef(settings.alertSound);
   alertSoundRef.current = settings.alertSound;
+  return { statusRef, turnStartRef, lastTurnRef, alertInAppRef, alertSoundRef };
+}
+
+export interface AlertSignalsParams {
+  settings: Settings;
+  selectionRef: RefObject<SelectionMark>;
+  drawerOpenRef: RefObject<boolean>;
+  splitRef: RefObject<SplitState | null>;
+  splitShownRef: RefObject<boolean>;
+  machinesRef: RefObject<Machine[]>;
+  alertsRef: RefObject<AlertPrefs>;
+  alertsOnRef: RefObject<boolean>;
+  pushOnRef: RefObject<boolean>;
+  statusRef: RefObject<Map<string, AgentStatus>>;
+  turnStartRef: RefObject<Map<string, number>>;
+  lastTurnRef: RefObject<Map<string, number>>;
+  alertInAppRef: RefObject<boolean>;
+  alertSoundRef: RefObject<boolean>;
+}
+
+/** The in-app alert and the alert sound, and what the event stream does with a status change. */
+export function useAlertSignals({ settings, selectionRef, drawerOpenRef, splitRef, splitShownRef, machinesRef, alertsRef, alertsOnRef, pushOnRef, statusRef, turnStartRef, lastTurnRef, alertInAppRef, alertSoundRef }: AlertSignalsParams) {
   // In-app alerts (components/Droplet.tsx): only while the app is on screen - a hidden app has
   // its system notifications - and never for the pane already open in front of the user.
   const dropIn = useCallback((machine: Machine, pane: HerdrPane, kind: DropletKind) => {
@@ -144,7 +165,22 @@ export function useAlerts({ settings, updateSettings, t, locked, selectionRef, d
       if (pane) showPaneEndedNotification(message.pane_id, `${machine.name} · ${alertPaneTitle(pane)}`, () => takeNotificationTargetRef.current({ machine_id: machine.id, pane_id: message.pane_id, view: "chat", workspace_id: pane.workspace_id }), machine.id, pane.workspace_id);
     }
   }, []);
+  return { dropIn, chime, onRoster, onPaneStatus, onPaneExited };
+}
 
+export interface NotificationSwitchParams {
+  updateSettings: (patch: Partial<Settings>) => void;
+  locked: boolean | null;
+  notifications: NotificationState;
+  setNotifications: Dispatch<SetStateAction<NotificationState>>;
+  alerts: AlertPrefs;
+  alertsRef: RefObject<AlertPrefs>;
+  alertsOn: boolean;
+  setPushOn: Dispatch<SetStateAction<boolean>>;
+}
+
+/** The Alerts switch: turning this device's alerts on and off, and keeping its push subscription. */
+export function useNotificationSwitch({ updateSettings, locked, notifications, setNotifications, alerts, alertsRef, alertsOn, setPushOn }: NotificationSwitchParams) {
   const enableNotifications = useCallback(async () => {
     // in-app alerts need no permission: the switch goes on whatever the browser answers
     updateSettings({ alertsOn: true });
@@ -189,7 +225,21 @@ export function useAlerts({ settings, updateSettings, t, locked, selectionRef, d
       cancelled = true;
     };
   }, [locked, notifications, alerts, alertsOn]);
+  return { enableNotifications, disableNotifications };
+}
 
+export interface AlertsBellParams {
+  t: Translate;
+  settings: Settings;
+  alertsOn: boolean;
+  notifications: NotificationState;
+  pushOn: boolean;
+  enableNotifications: () => Promise<unknown>;
+  disableNotifications: () => Promise<unknown>;
+}
+
+/** What the Alerts item in the header's More menu shows and does. */
+export function alertsBell({ t, settings, alertsOn, notifications, pushOn, enableNotifications, disableNotifications }: AlertsBellParams) {
   // The Alerts item says what this device does, whatever the browser's permission: in-app alerts
   // need none, so they count as on. A device that has not answered the permission question is
   // asked by the item; one that has answered gets a plain switch.
@@ -217,5 +267,5 @@ export function useAlerts({ settings, updateSettings, t, locked, selectionRef, d
   const bellVisible = notifications === "default" || notifications === "granted" || settings.alertInApp;
   // the menu's button carries a dot while alerts are off here: the one state of the menu worth a glance
   const alertsOffDot = bellVisible && !bell.on;
-  return { dropIn, chime, enableNotifications, setPushOn, bell, bellVisible, alertsOffDot, onRoster, onPaneStatus, onPaneExited };
+  return { bell, bellVisible, alertsOffDot };
 }
