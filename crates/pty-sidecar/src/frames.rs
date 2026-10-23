@@ -15,13 +15,17 @@ pub enum Frame {
 }
 
 pub fn parse(line: &str) -> Option<Frame> {
-    let value: Value = match serde_json::from_str(line) {
+    let mut value: Value = match serde_json::from_str(line) {
         Ok(value) => value,
         // JSON.stringify writes a lone surrogate as an escape, which serde_json refuses
         Err(_) => serde_json::from_str(&replace_lone_surrogates(line)?).ok()?,
     };
     match value.get("t")?.as_str()? {
-        "i" => Some(Frame::Input(value.get("d")?.as_str()?.to_owned())),
+        // moved out, not copied: a frame can be 16 MiB
+        "i" => match value.get_mut("d").map(Value::take) {
+            Some(Value::String(text)) => Some(Frame::Input(text)),
+            _ => None,
+        },
         "r" => Some(Frame::Resize(clamp(value.get("c")), clamp(value.get("r")))),
         "p" => Some(Frame::Pause(value.get("paused")?.as_bool()?)),
         "w" => Some(Frame::Winch),

@@ -1,11 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it, spyOn } from "bun:test";
-import { existsSync, mkdtempSync, rmSync, watch } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, watch } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { ptyHost, RUST_SIDECAR_BUILD, rustSidecar } from "./host.ts";
 import { PtySession, type PtySessionOptions } from "./session.ts";
 
-const built = existsSync(RUST_SIDECAR_BUILD);
+/** the Rust host these tests run: OVIS_PTY_SIDECAR_BIN, else the release build */
+const RUST_HOST = rustSidecar({ ...process.env, OVIS_PTY_SIDECAR: "rust" });
+const built = RUST_HOST !== null;
 const LIMIT_MS = 10_000;
 
 describe("ptyHost", () => {
@@ -24,7 +26,7 @@ describe("ptyHost", () => {
     } finally { said.mockRestore(); }
   });
 
-  it.skipIf(!built)("runs the Rust build, or OVIS_PTY_SIDECAR_BIN, when asked", () => {
+  it.skipIf(!existsSync(RUST_SIDECAR_BUILD))("runs the Rust build, or OVIS_PTY_SIDECAR_BIN, when asked", () => {
     expect(ptyHost("pty-host.mjs", { OVIS_PTY_SIDECAR: "rust" })).toEqual([RUST_SIDECAR_BUILD]);
     expect(rustSidecar({ OVIS_PTY_SIDECAR: "rust", OVIS_PTY_SIDECAR_BIN: RUST_SIDECAR_BUILD })).toBe(RUST_SIDECAR_BUILD);
   });
@@ -85,6 +87,21 @@ async function appears(path: string): Promise<void> {
   } finally { watcher.close(); }
 }
 
+/** A `sleep` whose arguments no other process has: the mark of one test's process group. */
+const sleepTag = () => `sleep ${5000 + Math.floor(Math.random() * 4000)}.${String(Math.random()).slice(2, 10)}`;
+
+/** Whether every process whose command line holds `tag` is gone within 3 s (a SIGKILLed one takes a moment). */
+async function gone(tag: string): Promise<boolean> {
+  for (const deadline = Date.now() + 3000; ;) {
+    if (Bun.spawnSync(["pgrep", "-f", tag]).stdout.length === 0) return true;
+    if (Date.now() > deadline) return false;
+    await Bun.sleep(25);
+  }
+}
+
+/** A command in a process group of its own whose members ignore SIGHUP: a hangup alone never ends it. */
+const STUBBORN_GROUP = (tag: string, then: string) => ["-c", `trap '' HUP; ${tag} & printf READY; ${then}`];
+
 /** The same checks on each host: the Rust one has to behave as the Node one does. */
 function parity(host: "node" | "rust") {
   describe.skipIf(host === "rust" && !built)(`PtySession on the ${host} PTY host`, () => {
@@ -110,7 +127,7 @@ function parity(host: "node" | "rust") {
         });
         expect(await started.exited).toBe(0);
         const argv = (spawn.mock.calls[0] as unknown as [string[]])[0];
-        expect(argv[0]).toBe(host === "rust" ? RUST_SIDECAR_BUILD : "node");
+        expect(argv[0]).toBe(host === "rust" ? RUST_HOST ?? "" : "node");
         expect(started.output()).toContain("[/tmp/ovis-host-parity.sock|xterm-256color|unset|unset]");
         // compared as a boolean so a failure never prints the token
         expect(started.output().includes(token)).toBe(false);
@@ -227,19 +244,153 @@ function parity(host: "node" | "rust") {
       } finally { flood.session.kill(); }
     }, 15_000);
 
-    // the Node host exits right after its SIGKILL, so only the Rust one promises the reap
-    it.skipIf(host !== "rust")("exits only after reaping a command that ignores SIGHUP", async () => {
-      const tag = `ovis-pty-stubborn-${crypto.randomUUID()}`;
-      const stubborn = run("node", ["-e", `/* ${tag} */ process.on("SIGHUP", () => {}); process.stdout.write("READY"); setInterval(() => {}, 1000);`]);
+    // the Node host signals the command alone, and exits right after its SIGKILL: only the Rust one promises these
+    it.skipIf(host !== "rust")("kills the command's whole process group when stopped, even one ignoring SIGHUP", async () => {
+      const tag = sleepTag();
+      const stubborn = run("sh", STUBBORN_GROUP(tag, "wait"));
       try {
         await stubborn.until("READY", (output) => output.includes("READY"));
         stubborn.session.kill();
         await stubborn.session.exited;
-        expect(Bun.spawnSync(["pgrep", "-f", tag]).stdout.length).toBe(0);
-      } finally { stubborn.session.kill(); }
+        expect(await gone(tag)).toBe(true);
+      } finally {
+        stubborn.session.kill();
+        Bun.spawnSync(["pkill", "-KILL", "-f", tag]);
+      }
+    }, 15_000);
+
+    it.skipIf(host !== "rust")("kills what is left of the command's process group when the command exits", async () => {
+      const tag = sleepTag();
+      const leaving = run("sh", STUBBORN_GROUP(tag, "exit 0"));
+      try {
+        expect(await leaving.exited).toBe(0);
+        expect(await gone(tag)).toBe(true);
+      } finally {
+        leaving.session.kill();
+        Bun.spawnSync(["pkill", "-KILL", "-f", tag]);
+      }
+    }, 15_000);
+
+    it.skipIf(host !== "rust")("holds output paused when the command exits, and delivers all of it on resume", async () => {
+      const dir = mkdtempSync(join(tmpdir(), "ovis-pty-exit-paused-"));
+      const wrote = join(dir, "wrote");
+      const ending = run("node", ["-e", `
+        const fs = require("fs");
+        process.stdin.setRawMode(true);
+        process.stdin.once("data", () => process.stdout.write("Q".repeat(1000), () => { fs.writeFileSync(${JSON.stringify(wrote)}, ""); process.exit(3); }));
+        process.stdout.write("READY");
+      `]);
+      try {
+        await ending.until("READY", (output) => output.includes("READY"));
+        ending.session.pause();
+        ending.session.write("go");
+        await appears(wrote);
+        await Bun.sleep(400); // fixed wait: past the 200 ms a host may keep reading once its command has exited
+        expect(ending.output()).not.toContain("Q");
+        ending.session.resume();
+        expect(await ending.exited).toBe(3);
+        expect(ending.output()).toContain("Q".repeat(1000));
+      } finally {
+        ending.session.kill();
+        rmSync(dir, { recursive: true, force: true });
+      }
     }, 15_000);
   });
 }
 
 parity("node");
 parity("rust");
+
+/** The Rust host run directly, so a test can write what PtySession never does: frames cut off, floods. */
+function direct(args: string[]) {
+  const proc = Bun.spawn([RUST_HOST ?? "", "40", "5", ...args], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  let output = "";
+  const waiters = new Set<() => void>();
+  void (async () => {
+    const decoder = new TextDecoder();
+    for await (const chunk of proc.stdout) {
+      output += decoder.decode(chunk, { stream: true });
+      for (const waiter of [...waiters]) waiter();
+    }
+  })();
+  void new Response(proc.stderr).text();
+  const until = (label: string, text: string) => new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => { waiters.delete(test); reject(new Error(`no ${label} in ${LIMIT_MS} ms: ${JSON.stringify(output.slice(-200))}`)); }, LIMIT_MS);
+    const test = () => {
+      if (!output.includes(text)) return;
+      clearTimeout(timer);
+      waiters.delete(test);
+      resolve();
+    };
+    waiters.add(test);
+    test();
+  });
+  /** the host's peak resident memory so far, in MiB */
+  const peakMiB = () => Number(readFileSync(`/proc/${proc.pid}/status`, "utf8").match(/VmHWM:\s+(\d+)/)?.[1]) / 1024;
+  return { proc, until, peakMiB };
+}
+
+/** Reports each resize, and never reads its input: what it is sent piles up in the pty (raw, so the line discipline keeps it). */
+const UNREAD = ["sh", "-c", 'stty raw -echo; exec node -e "$1"', "sh", `
+  const out = process.stdout;
+  process.on("SIGWINCH", () => out.write("WINCH " + out.columns + "x" + out.rows));
+  out.write("READY");
+  setInterval(() => {}, 1000);
+`];
+const RESIZE = `${JSON.stringify({ t: "r", c: 60, r: 10 })}\n`;
+
+describe.skipIf(!built || process.platform !== "linux")("the Rust PTY host under more input than it may hold", () => {
+  it("discards a control frame that never ends once it passes the limit, and takes the next one", async () => {
+    const host = direct(UNREAD);
+    try {
+      await host.until("READY", "READY");
+      const chunk = Buffer.alloc(1024 * 1024, 0x78);
+      host.proc.stdin.write('{"t":"i","d":"');
+      for (let mib = 0; mib < 96; mib++) {
+        host.proc.stdin.write(chunk);
+        await host.proc.stdin.flush();
+      }
+      host.proc.stdin.write(`"}\n${RESIZE}`);
+      await host.proc.stdin.flush();
+      await host.until("the resize", "WINCH 60x10");
+      expect(host.peakMiB()).toBeLessThan(48);
+    } finally {
+      host.proc.kill();
+      await host.proc.exited;
+    }
+  }, 30_000);
+
+  it("drops 64 KiB input frames a command does not read once 16 MiB wait, and still takes control frames", async () => {
+    const host = direct(UNREAD);
+    try {
+      await host.until("READY", "READY");
+      const frame = `${JSON.stringify({ t: "i", d: "y".repeat(64 * 1024) })}\n`;
+      for (let sent = 1; sent <= 1536; sent++) {
+        host.proc.stdin.write(frame);
+        if (sent % 16 === 0) await host.proc.stdin.flush();
+      }
+      host.proc.stdin.write(RESIZE);
+      await host.proc.stdin.flush();
+      await host.until("the resize", "WINCH 60x10");
+      expect(host.peakMiB()).toBeLessThan(48);
+    } finally {
+      host.proc.kill();
+      await host.proc.exited;
+    }
+  }, 30_000);
+
+  it("kills the command's process group when the host aborts", async () => {
+    const tag = sleepTag();
+    const host = direct(["sh", ...STUBBORN_GROUP(tag, "wait")]);
+    try {
+      await host.until("READY", "READY");
+      process.kill(host.proc.pid, "SIGABRT");
+      await host.proc.exited;
+      expect(host.proc.signalCode).toBe("SIGABRT");
+      expect(await gone(tag)).toBe(true);
+    } finally {
+      host.proc.kill();
+      Bun.spawnSync(["pkill", "-KILL", "-f", tag]);
+    }
+  }, 15_000);
+});

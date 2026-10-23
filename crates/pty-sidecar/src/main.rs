@@ -5,37 +5,56 @@
 //!   stdout: the pty's bytes
 //!   stderr: diagnostics only
 //!   exit:   the child's exit code, 0 when a signal ended it
+//!
+//! However the host ends, the command's whole process group goes with it.
 
 mod frames;
+mod input;
 mod pty;
 
 use frames::Frame;
+use input::{InputQueue, LineSplitter};
 use std::ffi::OsString;
 use std::fs::File;
-use std::io::{self, BufRead, Write};
+use std::io::{self, Read, Write};
 use std::mem::ManuallyDrop;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::os::unix::ffi::OsStrExt;
-use std::sync::{mpsc, Arc, Condvar, Mutex, MutexGuard};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
 
-/// After the child exits, what is left in the pty is read for at most this long, paused or not
-/// (node-pty's DESTROY_SOCKET_TIMEOUT_MS): EOF usually comes first.
-const EXIT_GRACE: Duration = Duration::from_millis(200);
+/// After the child exits, what is left in the pty is read until EOF, or until it has been quiet this long
+/// (the rest of its process group is hung up first, so that EOF usually comes first)...
+const EXIT_QUIET: Duration = Duration::from_millis(200);
+/// ...and for at most this long once reads may go on: a re-attach waits for the host.
+const EXIT_DRAIN_LIMIT: Duration = Duration::from_secs(2);
+/// Output paused when the child exits is held for the parent this long: the server resumes or drops a
+/// slow client within 10 s (OUTPUT_PAUSE_MAX_MS), and its kill unpauses.
+const EXIT_PAUSED_LIMIT: Duration = Duration::from_secs(15);
 const KILL_AFTER: Duration = Duration::from_secs(2);
 const REAP_WAIT: Duration = Duration::from_secs(1);
 const READ_CHUNK: usize = 64 * 1024;
+/// The longest frame held: every input the server writes comes from one WebSocket message, which Bun
+/// caps at 16 MiB by default and which escapes the text the way this frame does.
+const MAX_FRAME_BYTES: usize = 17 * 1024 * 1024;
+/// Input the command has not read yet, past which more is dropped (see InputQueue).
+const MAX_QUEUED_INPUT_BYTES: usize = 16 * 1024 * 1024;
+/// What the last read after a limit takes before the host ends.
+const FINAL_READ_BYTES: usize = 16 * 1024 * 1024;
 
 struct State {
     paused: bool,
     stopping: bool,
-    exit: Option<(i32, Instant)>,
+    /// when the child exited (it is reaped only by `finish`)
+    exit: Option<Instant>,
 }
 
 struct Shared {
     state: Mutex<State>,
     changed: Condvar,
+    /// the child's pid, and its process group's id; it is not reaped before `finish`, so neither is reused
     pid: libc::pid_t,
     wake: OwnedFd,
 }
@@ -45,37 +64,29 @@ impl Shared {
         self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    /// Signals the child only while it has not been reaped (the waiter reaps under this lock).
-    fn signal(&self, state: &State, signal: libc::c_int) {
-        if state.exit.is_none() {
-            unsafe { libc::kill(self.pid, signal) };
-        }
-    }
-
     fn notify(&self) {
         self.changed.notify_all();
         pty::wake(self.wake.as_raw_fd());
     }
 }
 
-/// The parent left or asked us to end: hang up the child, read on to its EOF, and give it KILL_AFTER.
+/// The parent left or asked us to end: hang up the command's group, read on to EOF, and give it KILL_AFTER.
 fn stop(shared: &Arc<Shared>) {
     {
         let mut state = shared.lock();
-        if state.exit.is_some() || state.stopping {
+        if state.stopping {
             return;
         }
         state.stopping = true;
         state.paused = false;
-        shared.signal(&state, libc::SIGHUP);
+        pty::signal_group(shared.pid, libc::SIGHUP);
     }
     shared.notify();
     let shared = Arc::clone(shared);
     thread::spawn(move || {
         thread::sleep(KILL_AFTER);
+        pty::signal_group(shared.pid, libc::SIGKILL);
         let mut state = shared.lock();
-        shared.signal(&state, libc::SIGKILL);
-        // exit only once the child is reaped: herdr frees the attach slot when the attach is gone
         let deadline = Instant::now() + REAP_WAIT;
         while state.exit.is_none() {
             let left = deadline.saturating_duration_since(Instant::now());
@@ -84,8 +95,25 @@ fn stop(shared: &Arc<Shared>) {
             }
             state = shared.changed.wait_timeout(state, left).unwrap_or_else(|poisoned| poisoned.into_inner()).0;
         }
-        std::process::exit(0);
+        drop(state);
+        finish(&shared, 0);
     });
+}
+
+/// The one way out once the command runs: kill what is left of its group, reap it, and exit with its code,
+/// or with `unexited` when it never exited (a stop that outlasted SIGKILL, a failure before it ran on).
+fn finish(shared: &Shared, unexited: i32) -> ! {
+    static FINISHING: AtomicBool = AtomicBool::new(false);
+    if FINISHING.swap(true, Ordering::SeqCst) {
+        loop {
+            thread::park();
+        }
+    }
+    pty::signal_group(shared.pid, libc::SIGKILL);
+    let exited = shared.lock().exit.is_some();
+    // an exit the waiter has not recorded yet is still the command's own code
+    let code = pty::reap(shared.pid, !exited).unwrap_or(unexited);
+    std::process::exit(code);
 }
 
 fn main() {
@@ -103,10 +131,21 @@ fn main() {
         libc::sigemptyset(&mut set);
         libc::sigaddset(&mut set, libc::SIGTERM);
         libc::sigaddset(&mut set, libc::SIGINT);
+        libc::sigaddset(&mut set, libc::SIGHUP);
+        libc::sigaddset(&mut set, libc::SIGQUIT);
         libc::pthread_sigmask(libc::SIG_BLOCK, &set, std::ptr::null_mut());
         set
     };
 
+    if let Err(error) = pty::default_sigchld() {
+        eprintln!("pty-sidecar: {error}");
+        std::process::exit(1);
+    }
+    let (wake_read, wake_write) = pty::wake_pipe().unwrap_or_else(|error| {
+        eprintln!("pty-sidecar: {error}");
+        std::process::exit(1);
+    });
+    // on the main thread, which lives until `finish`: Linux's PR_SET_PDEATHSIG follows the thread that forked
     let (master, pid) = match pty::spawn(&argv[2], &argv[3..], cols, rows) {
         Ok(started) => started,
         Err(error) => {
@@ -114,26 +153,33 @@ fn main() {
             std::process::exit(1);
         }
     };
-    let (wake_read, wake_write) = pty::wake_pipe().unwrap_or_else(|error| {
-        eprintln!("pty-sidecar: {error}");
-        std::process::exit(1);
-    });
     let shared = Arc::new(Shared {
         state: Mutex::new(State { paused: false, stopping: false, exit: None }),
         changed: Condvar::new(),
         pid,
         wake: wake_write,
     });
+    if let Err(error) = pty::kill_group_on_crash(pid) {
+        eprintln!("pty-sidecar: {error}");
+        finish(&shared, 1);
+    }
+    let writer = match master.try_clone() {
+        Ok(writer) => writer,
+        Err(error) => {
+            eprintln!("pty-sidecar: {error}");
+            finish(&shared, 1);
+        }
+    };
 
     {
         let shared = Arc::clone(&shared);
         thread::spawn(move || {
-            pty::wait_exited(shared.pid);
-            {
-                let mut state = shared.lock();
-                let code = pty::reap(shared.pid);
-                state.exit = Some((code, Instant::now()));
+            if let Err(error) = pty::wait_exited(shared.pid) {
+                eprintln!("pty-sidecar: waiting for the command: {error}");
             }
+            // the rest of its group goes with it, and their ends close the pty
+            pty::signal_group(shared.pid, libc::SIGHUP);
+            shared.lock().exit = Some(Instant::now());
             shared.notify();
         });
     }
@@ -146,112 +192,170 @@ fn main() {
             }
         });
     }
-    let input = match master.try_clone() {
-        Ok(writer) => spawn_writer(writer),
-        Err(error) => {
-            eprintln!("pty-sidecar: {error}");
-            std::process::exit(1);
-        }
-    };
+    let input = Arc::new(InputQueue::new(MAX_QUEUED_INPUT_BYTES));
+    {
+        let input = Arc::clone(&input);
+        thread::spawn(move || write_input(writer, &input));
+    }
     {
         let shared = Arc::clone(&shared);
         let master = master.as_raw_fd();
         thread::spawn(move || control(&shared, &input, master));
     }
 
-    let code = pump(&shared, master.as_raw_fd(), wake_read.as_raw_fd());
-    std::process::exit(code);
+    pump(&shared, master.as_raw_fd(), wake_read.as_raw_fd());
+    finish(&shared, 0);
 }
 
-/// Input goes through its own thread: a child that does not read must never hold up the control frames behind it.
-fn spawn_writer(master: OwnedFd) -> mpsc::Sender<Vec<u8>> {
-    let (sender, receiver) = mpsc::channel::<Vec<u8>>();
-    thread::spawn(move || {
-        let mut master = File::from(master);
-        for data in receiver {
-            let _ = master.write_all(&data);
-        }
-    });
-    sender
-}
-
-fn control(shared: &Arc<Shared>, input: &mpsc::Sender<Vec<u8>>, master: RawFd) {
-    let mut stdin = io::stdin().lock();
-    let mut line = Vec::new();
+/// Input goes through its own thread: a command that does not read must never hold up the control frames.
+fn write_input(master: OwnedFd, input: &InputQueue) {
+    let mut master = File::from(master);
     loop {
-        line.clear();
-        match stdin.read_until(b'\n', &mut line) {
-            Ok(0) | Err(_) => break,
-            Ok(_) => {}
-        }
-        // a last line without its newline is not a frame (pty-host.mjs drops it too)
-        if line.last() != Some(&b'\n') {
-            break;
-        }
-        let text = String::from_utf8_lossy(&line);
-        let Some(frame) = frames::parse(text.trim()) else { continue };
-        match frame {
-            Frame::Input(text) => {
-                let _ = input.send(text.into_bytes());
-            }
-            Frame::Resize(cols, rows) => {
-                if let Err(error) = pty::resize(master, cols, rows) {
-                    eprintln!("pty-sidecar: {error}");
+        let data = input.next();
+        // a pty whose command has gone refuses it (EIO): the pump ends the host then
+        let _ = master.write_all(&data);
+        input.written(data.len());
+    }
+}
+
+fn control(shared: &Arc<Shared>, input: &InputQueue, master: RawFd) {
+    let mut stdin = io::stdin().lock();
+    let mut buf = vec![0u8; READ_CHUNK];
+    let mut lines = LineSplitter::new(MAX_FRAME_BYTES);
+    let mut dropping = false;
+    loop {
+        let read = match stdin.read(&mut buf) {
+            Ok(0) => break,
+            Ok(read) => read,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(_) => break,
+        };
+        let discarded = lines.feed(&buf[..read], |line| {
+            let text = String::from_utf8_lossy(line);
+            let Some(frame) = frames::parse(text.trim()) else { return };
+            match frame {
+                Frame::Input(text) => {
+                    if input.push(text.into_bytes()) {
+                        dropping = false;
+                    } else if !dropping {
+                        dropping = true;
+                        eprintln!("pty-sidecar: the command is not reading its input: {MAX_QUEUED_INPUT_BYTES} bytes wait, dropping input until it takes some");
+                    }
+                }
+                Frame::Resize(cols, rows) => {
+                    if let Err(error) = pty::resize(master, cols, rows) {
+                        eprintln!("pty-sidecar: {error}");
+                    }
+                }
+                Frame::Winch => pty::signal(shared.pid, libc::SIGWINCH),
+                Frame::Pause(paused) => {
+                    let mut state = shared.lock();
+                    if !state.stopping {
+                        state.paused = paused;
+                        drop(state);
+                        shared.changed.notify_all();
+                    }
                 }
             }
-            Frame::Winch => shared.signal(&shared.lock(), libc::SIGWINCH),
-            Frame::Pause(paused) => {
-                let mut state = shared.lock();
-                if !state.stopping {
-                    state.paused = paused;
-                    drop(state);
-                    shared.changed.notify_all();
-                }
-            }
+        });
+        if discarded > 0 {
+            eprintln!("pty-sidecar: discarded a control frame longer than {MAX_FRAME_BYTES} bytes");
         }
     }
+    // a last line without its newline is not a frame (pty-host.mjs drops it too)
     stop(shared);
 }
 
 enum Gate {
-    /// `left`: the time to read on, once the child has exited
-    Read { left: Option<Duration> },
+    /// how long to wait for output: None until the child exits
+    Read(Option<Duration>),
     Finish,
 }
 
-/// Holds reads while the parent has output paused (input stays live meanwhile).
-fn gate(shared: &Shared) -> Gate {
+struct Drain {
+    /// when output last moved
+    active: Instant,
+    /// when reads last resumed after the child exited
+    resumed: Option<Instant>,
+}
+
+/// Holds reads while the parent has output paused (input stays live meanwhile), and ends them once the
+/// exited child's output is done.
+fn gate(shared: &Shared, drain: &mut Drain) -> Gate {
     let mut state = shared.lock();
+    let mut held = false;
     loop {
-        let left = match state.exit {
-            None => None,
-            Some((_, at)) => match EXIT_GRACE.checked_sub(at.elapsed()) {
-                Some(left) if !left.is_zero() => Some(left),
-                _ => return Gate::Finish,
-            },
+        let paused = state.paused && !state.stopping;
+        let now = Instant::now();
+        let Some(exited) = state.exit else {
+            if !paused {
+                return Gate::Read(None);
+            }
+            held = true;
+            state = shared.changed.wait(state).unwrap_or_else(|poisoned| poisoned.into_inner());
+            continue;
         };
-        if !state.paused || state.stopping {
-            return Gate::Read { left };
+        if paused {
+            let limit = exited + EXIT_PAUSED_LIMIT;
+            if now >= limit {
+                return Gate::Finish;
+            }
+            held = true;
+            state = shared.changed.wait_timeout(state, limit - now).unwrap_or_else(|poisoned| poisoned.into_inner()).0;
+            continue;
         }
-        state = match left {
-            None => shared.changed.wait(state).unwrap_or_else(|poisoned| poisoned.into_inner()),
-            Some(left) => shared.changed.wait_timeout(state, left).unwrap_or_else(|poisoned| poisoned.into_inner()).0,
-        };
+        if held {
+            drain.resumed = Some(now);
+        }
+        let since = drain.resumed.map_or(exited, |resumed| resumed.max(exited));
+        let end = (drain.active.max(since) + EXIT_QUIET).min(since + EXIT_DRAIN_LIMIT);
+        if now >= end {
+            return Gate::Finish;
+        }
+        return Gate::Read(Some(end - now));
     }
 }
 
-/// Copies the pty to stdout until it ends, then returns the child's exit code. A blocking write to stdout
+/// Copies the pty to stdout until it ends, then waits for the child's exit. A blocking write to stdout
 /// holds the reads, so a parent that stops reading stops the pty too.
-fn pump(shared: &Arc<Shared>, master: RawFd, wake: RawFd) -> i32 {
+fn pump(shared: &Arc<Shared>, master: RawFd, wake: RawFd) {
     let mut stdout = ManuallyDrop::new(unsafe { File::from_raw_fd(1) });
     let mut buf = vec![0u8; READ_CHUNK];
     let mut discard = false;
+    let mut drain = Drain { active: Instant::now(), resumed: None };
+    let mut copy = |data: &[u8], discard: &mut bool| {
+        if !*discard && stdout.write_all(data).is_err() {
+            // the parent is gone (EPIPE): end the child, and keep reading so it never blocks on output
+            *discard = true;
+            stop(shared);
+        }
+    };
     loop {
-        let left = match gate(shared) {
-            Gate::Finish => break,
-            Gate::Read { left } => left,
+        let wait = match gate(shared, &mut drain) {
+            Gate::Finish => {
+                // what is already there when a limit ends the reads still goes out
+                let mut taken = 0;
+                while taken < FINAL_READ_BYTES {
+                    match pty::wait_readable(master, wake, Some(Duration::ZERO)) {
+                        Ok(Some(ready)) if ready.master => {}
+                        _ => break,
+                    }
+                    match pty::read(master, &mut buf) {
+                        Ok(read) if read > 0 => {
+                            copy(&buf[..read], &mut discard);
+                            taken += read;
+                        }
+                        _ => break,
+                    }
+                }
+                if taken >= FINAL_READ_BYTES {
+                    eprintln!("pty-sidecar: output went on after the command exited: the last {FINAL_READ_BYTES} bytes were read, the rest is dropped");
+                }
+                break;
+            }
+            Gate::Read(wait) => wait,
         };
-        let ready = match pty::wait_readable(master, wake, left) {
+        let ready = match pty::wait_readable(master, wake, wait) {
             Ok(Some(ready)) => ready,
             Ok(None) => continue,
             Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
@@ -273,22 +377,19 @@ fn pump(shared: &Arc<Shared>, master: RawFd, wake: RawFd) -> i32 {
         match pty::read(master, &mut buf) {
             Ok(0) => break,
             Ok(read) => {
-                if !discard && stdout.write_all(&buf[..read]).is_err() {
-                    // the parent is gone (EPIPE): end the child, and keep reading so it never blocks on output
-                    discard = true;
-                    stop(shared);
-                }
+                copy(&buf[..read], &mut discard);
+                // time spent blocked on stdout is not the pty being quiet
+                drain.active = Instant::now();
             }
             Err(error) if matches!(error.kind(), io::ErrorKind::Interrupted | io::ErrorKind::WouldBlock) => continue,
             // EIO: every slave descriptor is closed
             Err(_) => break,
         }
     }
+    // a command that closed its terminal without exiting ends as a stopped one does
+    stop(shared);
     let mut state = shared.lock();
-    loop {
-        if let Some((code, _)) = state.exit {
-            return code;
-        }
+    while state.exit.is_none() {
         state = shared.changed.wait(state).unwrap_or_else(|poisoned| poisoned.into_inner());
     }
 }

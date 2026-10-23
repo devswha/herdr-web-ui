@@ -4,6 +4,7 @@ use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicI32, Ordering};
 use std::time::Duration;
 
 fn check(rc: libc::c_int) -> io::Result<libc::c_int> {
@@ -95,6 +96,8 @@ pub fn spawn(command: &OsStr, args: &[OsString], cols: u16, rows: u16) -> io::Re
     set_flags(&slave, false)?;
 
     let cwd = working_directory()?;
+    #[cfg(target_os = "linux")]
+    let host = std::process::id() as libc::pid_t;
     let mut cmd = Command::new(command);
     cmd.args(args)
         .env_clear()
@@ -105,12 +108,20 @@ pub fn spawn(command: &OsStr, args: &[OsString], cols: u16, rows: u16) -> io::Re
         .stderr(Stdio::from(slave.try_clone()?));
     unsafe {
         // runs in the child after std has put the slave on 0, 1 and 2, and before exec
-        cmd.pre_exec(|| {
+        cmd.pre_exec(move || {
             check(libc::setsid())?;
             check(libc::ioctl(0, libc::TIOCSCTTY as _, 0))?;
             let mut none: libc::sigset_t = std::mem::zeroed();
             libc::sigemptyset(&mut none);
             libc::pthread_sigmask(libc::SIG_SETMASK, &none, std::ptr::null_mut());
+            // a host killed outright (SIGKILL, the OOM killer) takes the command with it
+            #[cfg(target_os = "linux")]
+            {
+                check(libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL))?;
+                if libc::getppid() != host {
+                    return Err(io::Error::other("the PTY host exited"));
+                }
+            }
             Ok(())
         });
     }
@@ -179,33 +190,89 @@ pub fn wake(fd: RawFd) {
     unsafe { libc::write(fd, (&byte as *const u8).cast(), 1) };
 }
 
-/// Blocks until the child has exited, without reaping it: its pid cannot be reused before `reap`.
-pub fn wait_exited(pid: libc::pid_t) {
+/// Blocks until the child has exited, without reaping it, so that its pid (also its process group's id)
+/// cannot be reused before `reap`. SIGCHLD must not be ignored (`default_sigchld`), or the kernel reaps it.
+pub fn wait_exited(pid: libc::pid_t) -> io::Result<()> {
     loop {
+        // SAFETY: an all-zero siginfo_t is valid, and waitid writes only into it
         let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
-        let rc = unsafe { libc::waitid(libc::P_PID, pid as libc::id_t, &mut info, libc::WEXITED | libc::WNOWAIT) };
-        if rc == 0 || io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
-            return;
+        if unsafe { libc::waitid(libc::P_PID, pid as libc::id_t, &mut info, libc::WEXITED | libc::WNOWAIT) } == 0 {
+            return Ok(());
+        }
+        let error = io::Error::last_os_error();
+        if error.kind() != io::ErrorKind::Interrupted {
+            return Err(error);
         }
     }
 }
 
-/// Reaps an exited child: its exit code, or 0 when a signal ended it (node-pty reports it so).
-pub fn reap(pid: libc::pid_t) -> i32 {
+/// SIGCHLD back to its default: an ignored one, which survives exec, would have the kernel reap the child.
+pub fn default_sigchld() -> io::Result<()> {
+    // SAFETY: an all-zero sigaction with SIG_DFL is valid
+    unsafe {
+        let mut action: libc::sigaction = std::mem::zeroed();
+        action.sa_sigaction = libc::SIG_DFL;
+        libc::sigemptyset(&mut action.sa_mask);
+        check(libc::sigaction(libc::SIGCHLD, &action, std::ptr::null_mut())).map(drop)
+    }
+}
+
+/// Reaps the child, waiting for it unless `nohang`: its exit code, 0 when a signal ended it (node-pty
+/// reports it so), or None when it has not exited.
+pub fn reap(pid: libc::pid_t, nohang: bool) -> Option<i32> {
     let mut status = 0;
     loop {
-        let rc = unsafe { libc::waitpid(pid, &mut status, 0) };
+        let rc = unsafe { libc::waitpid(pid, &mut status, if nohang { libc::WNOHANG } else { 0 }) };
         if rc == pid {
             break;
         }
         if rc == -1 && io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) {
             continue;
         }
-        return 0;
+        return if rc == 0 { None } else { Some(0) };
     }
-    if libc::WIFEXITED(status) {
-        libc::WEXITSTATUS(status)
-    } else {
-        0
+    Some(if libc::WIFEXITED(status) { libc::WEXITSTATUS(status) } else { 0 })
+}
+
+pub fn signal(pid: libc::pid_t, signal: libc::c_int) {
+    unsafe { libc::kill(pid, signal) };
+}
+
+/// Signals every process in the group `group`, the child's: it is a session leader, so its pid is the group's id.
+/// Never 0 or 1: kill(0) and kill(-1) would reach this host's own group (the server's) or every process.
+pub fn signal_group(group: libc::pid_t, signal: libc::c_int) {
+    if group > 1 {
+        unsafe { libc::kill(-group, signal) };
     }
+}
+
+static GROUP: AtomicI32 = AtomicI32::new(0);
+
+extern "C" fn kill_group(signal: libc::c_int) {
+    let group = GROUP.load(Ordering::Relaxed);
+    // SAFETY: kill and raise are async-signal-safe
+    unsafe {
+        if group > 1 {
+            libc::kill(-group, libc::SIGKILL);
+        }
+        // SA_RESETHAND restored the default action: once this returns, it ends the host
+        libc::raise(signal);
+    }
+}
+
+/// A crash (an abort: an allocation that failed, a panic; a fault) kills `group` on the host's way out: the
+/// host's own end never leaves the command running. SA_ONSTACK: a stack overflow runs it on std's own stack.
+pub fn kill_group_on_crash(group: libc::pid_t) -> io::Result<()> {
+    GROUP.store(group, Ordering::Relaxed);
+    for signal in [libc::SIGABRT, libc::SIGSEGV, libc::SIGBUS, libc::SIGILL, libc::SIGFPE] {
+        // SAFETY: an all-zero sigaction is valid; the handler only reads an atomic and calls kill and raise
+        unsafe {
+            let mut action: libc::sigaction = std::mem::zeroed();
+            action.sa_sigaction = kill_group as extern "C" fn(libc::c_int) as libc::sighandler_t;
+            action.sa_flags = libc::SA_RESETHAND | libc::SA_ONSTACK;
+            libc::sigemptyset(&mut action.sa_mask);
+            check(libc::sigaction(signal, &action, std::ptr::null_mut()))?;
+        }
+    }
+    Ok(())
 }
