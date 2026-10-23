@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import type { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
-import { acquire, acquireWaiting, checkoutIdentity, describeGroup, describeHolders, endGroup, isolate, lock, maxRuns, needsLock, plan, sanitizeCommand, stopSessions, teardown, waitSeconds } from "./check.ts";
+import { CI_NODE_MAJOR, acquire, acquireWaiting, checkoutIdentity, describeGroup, describeHolders, endGroup, isolate, lock, lockPort, maxRuns, needsLock, plan, sanitizeCommand, stopSessions, teardown, waitSeconds, warnNodeVersionMismatch } from "./check.ts";
 
 const made: string[] = [];
 afterEach(() => { for (const path of made.splice(0)) rmSync(path, { recursive: true, force: true }); });
@@ -41,6 +41,34 @@ describe("plan", () => {
     expect(needsLock(plan(["concurrent"]))).toBe(true);
     expect(sanitizeCommand(["bun", "--api-token", "private", "--access-token=value", "https://example.test/?token=secret"]))
       .toEqual(["bun", "--api-token", "[REDACTED]", "--access-token=[REDACTED]", "https://example.test/?token=[REDACTED]"]);
+  });
+});
+
+describe("check environment", () => {
+  it("uses CHECK_LOCK_PORT within the allowed range and keeps the default", () => {
+    expect(lockPort({})).toBe(41737);
+    expect(lockPort({ CHECK_LOCK_PORT: "" })).toBe(41737);
+    expect(lockPort({ CHECK_LOCK_PORT: "1024" })).toBe(1024);
+    expect(lockPort({ CHECK_LOCK_PORT: "65535" })).toBe(65535);
+    expect(lockPort({ CHECK_LOCK_PORT: "50000" })).toBe(50000);
+    for (const value of ["1023", "65536", "-1", "1.5", "port", " 5000"]) {
+      expect(() => lockPort({ CHECK_LOCK_PORT: value })).toThrow("CHECK_LOCK_PORT");
+    }
+  });
+
+  it("warns only when the local Node major differs from CI", () => {
+    const warnings: string[] = [];
+    const warn = (message: string): void => { warnings.push(message); };
+    warnNodeVersionMismatch("v24.18.0", warn);
+    expect(warnings).toEqual(["check: warning: local Node v24.18.0 differs from CI Node 22"]);
+    warnNodeVersionMismatch("v22.16.0", warn);
+    warnNodeVersionMismatch(null, warn);
+    expect(warnings).toHaveLength(1);
+  });
+
+  it("compares with the Node major the CI runner image installs", () => {
+    const dockerfile = readFileSync(fileURLToPath(new URL("./self-hosted-runner/Dockerfile", import.meta.url)), "utf8");
+    expect(Number(dockerfile.match(/^ARG NODE_VERSION=(\d+)\./m)?.[1])).toBe(CI_NODE_MAJOR);
   });
 });
 

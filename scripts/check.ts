@@ -23,7 +23,8 @@
  *
  * A few herdr-backed runs at a time on this PC (CHECK_MAX_RUNS, see maxRuns): contract and browser
  * tests are bound by timing, so too many side by side fail each other. Each run holds a slot, a
- * loopback port it listens on (LOCK_PORT and the ports after it), so a run that died holds nothing.
+ * loopback port it listens on (CHECK_LOCK_PORT, default 41737, and the ports after it), so a run
+ * that died holds nothing.
  * A run that finds every slot taken names the holders and exits, and so does a second run in the
  * same checkout, which would share its dist/ and generated types.
  *
@@ -236,8 +237,15 @@ export async function teardown(stops: readonly (() => void | Promise<void>)[], i
   return { failures, retained: null };
 }
 
-/** The first loopback port a herdr-backed run listens on while it runs: slot 1. Slot n is LOCK_PORT + n - 1. */
-export const LOCK_PORT = 41737;
+/** The first loopback port a herdr-backed run listens on while it runs: slot 1. */
+export const DEFAULT_LOCK_PORT = 41737;
+export function lockPort(env: Record<string, string | undefined>): number {
+  const asked = env["CHECK_LOCK_PORT"];
+  if (asked === undefined || asked === "") return DEFAULT_LOCK_PORT;
+  const port = /^\d+$/.test(asked) ? Number(asked) : Number.NaN;
+  if (!(port >= 1024 && port <= 65535)) throw new Error(`CHECK_LOCK_PORT must be a whole number from 1024 to 65535, not "${asked}"`);
+  return port;
+}
 /** The most slots CHECK_MAX_RUNS may ask for; every run looks at all of them for its own checkout. */
 export const MAX_RUNS_LIMIT = 8;
 
@@ -282,6 +290,15 @@ export function waitSeconds(env: Record<string, string | undefined>): number {
   return seconds;
 }
 
+/** The Node major CI's runners use (scripts/self-hosted-runner/Dockerfile's NODE_VERSION; a test keeps them equal). */
+export const CI_NODE_MAJOR = 22;
+export function warnNodeVersionMismatch(version: string | null, warn: (message: string) => void, ciMajor = CI_NODE_MAJOR): void {
+  const major = version?.match(/^v(\d+)\./)?.[1];
+  if (major !== undefined && Number(major) !== ciMajor) {
+    warn(`check: warning: local Node ${version} differs from CI Node ${ciMajor}`);
+  }
+}
+
 /** What a slot's holder says: its pid (NaN when what listens there is no run) and its checkout, when it names one. */
 export type Holder = { heldBy: number; checkout?: string };
 
@@ -309,7 +326,7 @@ function ask(port: number): Promise<Holder | null> {
  * holds it answers a connection with its pid and checkout. Resolves with the release, or with who
  * holds it (NaN when something else listens there).
  */
-export function lock(port = LOCK_PORT, pid = process.pid, checkout?: string): Promise<{ release: () => void } | Holder> {
+export function lock(port = DEFAULT_LOCK_PORT, pid = process.pid, checkout?: string): Promise<{ release: () => void } | Holder> {
   return new Promise((resolve, reject) => {
     const answer = checkout === undefined ? String(pid) : `${pid}\n${checkout}`;
     const server = createServer((socket) => { socket.on("error", () => undefined); socket.end(answer); });
@@ -335,7 +352,7 @@ export type SlotHolder = Holder & { port: number };
  * unlink each other's newly acquired marker. A busy admission port refuses rather than waits.
  */
 export async function acquire(
-  { slots, checkout, base = LOCK_PORT, pid = process.pid, scan = MAX_RUNS_LIMIT, resources = [], reports = [] }: { slots: number; checkout: string; base?: number; pid?: number; scan?: number; resources?: readonly string[]; reports?: readonly string[] },
+  { slots, checkout, base = DEFAULT_LOCK_PORT, pid = process.pid, scan = MAX_RUNS_LIMIT, resources = [], reports = [] }: { slots: number; checkout: string; base?: number; pid?: number; scan?: number; resources?: readonly string[]; reports?: readonly string[] },
 ): Promise<{ release: () => void; port: number | null } | { refused: "busy" | "same-checkout" | "resource"; holders: SlotHolder[]; resource?: string }> {
   const admissionPort = base + Math.max(slots, scan);
   const admission = await lock(admissionPort, pid, checkout);
@@ -486,7 +503,9 @@ export async function main(groupSeams: GroupSeams & {
       } catch (error) { console.error(`check: ${(error as Error).message}`); process.exit(2); }
       const waitStarted = Date.now();
       let waited = false;
-      const held = await acquireWaiting({ slots, checkout: checkoutIdentity(realpathSync(cwd)), resources, reports }, {
+      let base: number;
+      try { base = lockPort(process.env); } catch (error) { console.error(`check: ${(error as Error).message}`); process.exit(2); }
+      const held = await acquireWaiting({ slots, checkout: checkoutIdentity(realpathSync(cwd)), base, resources, reports }, {
         waitMs: wait * 1000,
         onWait: (holders) => {
           waited = true;
@@ -606,6 +625,7 @@ export async function main(groupSeams: GroupSeams & {
   const nodeVersion = spawnSync("node", ["--version"], { encoding: "utf8", timeout: 5_000 });
   const nodeVersionLine = nodeVersion.stdout?.trim().split(/\r?\n/, 1)[0] ?? "";
   report.toolchain.nodeVersion = nodeVersion.status === 0 && /^v\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$/.test(nodeVersionLine) ? nodeVersionLine : null;
+  warnNodeVersionMismatch(report.toolchain.nodeVersion, (warning) => console.warn(warning));
   try { sourceStart = sourceIdentity(cwd, sourceExcludes); }
   catch (error) {
     const reason = String((error as Error).message || error).replace(/[\r\n\t]+/g, " ").trim().slice(0, 512) || "source identity could not be captured";
