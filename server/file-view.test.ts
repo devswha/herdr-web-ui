@@ -503,9 +503,18 @@ describe("page files read through the descriptor that was validated", () => {
   it("fails closed on unreadable or deleted descriptor path", async () => {
     const { page } = layout();
     pageFileHooks.platform = "linux";
+    // the page is looked at first and gets its own path; each of its files' looks fails
+    let looks = 0;
     let asked: string[] = [];
-    pageFileHooks.readlink = (path) => { asked.push(path); throw Object.assign(new Error("no procfs"), { code: "ENOENT" }); };
-    expect(drawn(await render(page))).toEqual({ picture: false, tokens: [], outsideBytes: false });
+    pageFileHooks.readlink = (path) => {
+      looks += 1;
+      if (looks === 1) return page;
+      asked.push(path);
+      throw Object.assign(new Error("no procfs"), { code: "ENOENT" });
+    };
+    let html = await render(page);
+    expect(html).toContain(`<img id="pic" src="sub/f.png">`);
+    expect(drawn(html)).toEqual({ picture: false, tokens: [], outsideBytes: false });
     expect(asked.length).toBeGreaterThan(0);
     expect(asked.every((path) => /^\/proc\/self\/fd\/\d+$/.test(path))).toBe(true);
     asked = [];
@@ -514,8 +523,16 @@ describe("page files read through the descriptor that was validated", () => {
     let authorized = 0;
     pageFileHooks.afterAuthorize = () => { authorized += 1; };
     pageFileHooks.beforeIdentity = (file) => { deletedPath = `${file} (deleted)`; };
-    pageFileHooks.readlink = (path) => { asked.push(path); return deletedPath; };
-    expect(drawn(await render(page))).toEqual({ picture: false, tokens: [], outsideBytes: false });
+    looks = 0;
+    pageFileHooks.readlink = (path) => {
+      looks += 1;
+      if (looks === 1) return page;
+      asked.push(path);
+      return deletedPath;
+    };
+    html = await render(page);
+    expect(html).toContain(`<img id="pic" src="sub/f.png">`);
+    expect(drawn(html)).toEqual({ picture: false, tokens: [], outsideBytes: false });
     expect(asked.length).toBeGreaterThan(0);
     expect(authorized).toBe(0);
     // and the same file, read through a real descriptor path, draws
@@ -700,6 +717,31 @@ describe("page files read through the descriptor that was validated", () => {
     const html = await render(page);
     expect(swapped).toBe(true);
     expect(drawn(html)).toEqual({ picture: false, tokens: [], outsideBytes: false });
+  });
+
+  it.skipIf(windows)("refuses a page whose folder becomes a link to another folder once it is resolved", async () => {
+    const { root, site, outside, page } = layout();
+    writeFileSync(join(outside, "page.html"), "<p>OUTSIDE-PAGE-SECRET</p>");
+    const found = fileInfo(page)!;
+    // swapped just after the page's folder and path are resolved, and left so
+    pageFileHooks.pageFolder = () => {
+      renameSync(site, join(root, "parked"));
+      symlinkSync(outside, site);
+    };
+    const response = fileResponse(found, false, true, owner());
+    expect(response.status).toBe(404);
+    expect(await response.text()).not.toContain("OUTSIDE-PAGE-SECRET");
+  });
+
+  it.skipIf(windows)("draws a page that is itself a link, taking its files from the link's folder", async () => {
+    const { root, site } = layout();
+    mkdirSync(join(root, "pages"));
+    writeFileSync(join(root, "pages", "real.html"), `<img id="pic" src="sub/f.png">`);
+    const linked = join(site, "linked.html");
+    symlinkSync(join(root, "pages", "real.html"), linked);
+    const response = fileResponse(fileInfo(linked)!, false, true, null);
+    expect(response.status).toBe(200);
+    expect(drawn(await response.text()).picture).toBe(true);
   });
 
   it.skipIf(windows)("refuses a page that is not the file of its name in the folder it was resolved to", async () => {

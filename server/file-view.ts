@@ -530,6 +530,21 @@ function openedWithin(fd: number, file: string, root: string, roots: readonly st
   return platform === "win32";
 }
 
+/**
+ * Whether the page open at `fd` is `file`, its path resolved before it was opened: on Linux the kernel's
+ * path of the descriptor (one that cannot be read, or was deleted, is not); elsewhere its path resolved
+ * again after the open, a sample like the other platforms' checks (`openAuthorized`). A page that is
+ * itself a link is the file it leads to, and its folder stays the link's, as before.
+ */
+function pageOpenedAs(fd: number, path: string, file: string): boolean {
+  if ((pageFileHooks.platform ?? process.platform) === "linux") {
+    let opened: string;
+    try { opened = (pageFileHooks.readlink ?? readlinkSync)(`/proc/self/fd/${fd}`); } catch { return false; }
+    return opened === file;
+  }
+  return realpathSync(path) === file;
+}
+
 /** Every folder from `root` to `file`'s own is a folder (not a link), owned by `uid`, and writable by no group or other user. */
 function ownedFolders(root: string, file: string, uid: number | undefined): boolean {
   if (uid === undefined) return false;
@@ -615,11 +630,15 @@ interface PageAsset { target: string; mime: string; size: number; data: string |
  * page. Null when the page is not a file of at most `EMBED_PAGE_BYTES`, or changed while it was read.
  */
 export function pageWithLocalFiles(path: string, media: PageMedia | null = null): string | null {
-  // the page's folder is fixed before the page is opened, and the page read must be the file of its
-  // name in that folder: a folder swapped for a link around either look would otherwise make the
-  // link's target the folder the page's files are allowed from
+  // the page's folder and the page itself are resolved before the page is opened, and the page read
+  // must be that file, the file of its name in that folder: a folder swapped for a link around these
+  // looks would otherwise serve another folder's page, or make it the folder the page's files come from
   let folder: string;
-  try { folder = realpathSync(dirname(path)); } catch { return null; }
+  let file: string;
+  try {
+    folder = realpathSync(dirname(path));
+    file = realpathSync(path);
+  } catch { return null; }
   pageFileHooks.pageFolder?.(folder);
   let html: string;
   let fd: number;
@@ -628,7 +647,7 @@ export function pageWithLocalFiles(path: string, media: PageMedia | null = null)
     const page = fstatBig(fd);
     if (!page.isFile() || page.size > BigInt(EMBED_PAGE_BYTES)) return null;
     const named = statSync(join(folder, basename(path)), { bigint: true });
-    if (named.dev !== page.dev || named.ino !== page.ino) return null;
+    if (named.dev !== page.dev || named.ino !== page.ino || !pageOpenedAs(fd, path, file)) return null;
     const bytes = readWhole(fd, Number(page.size), page.mtimeNs);
     if (bytes === null) return null;
     html = bytes.toString("utf8");
