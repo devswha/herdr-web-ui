@@ -1451,14 +1451,16 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     // as the route does: a name herdr gave by the tab's place stays behind, and the new place names it
     const place = snap.tabs.filter((t) => t.workspace_id === from).indexOf(tab) + 1;
     const named = tab.label.trim();
-    const label = named === "" || named === String(place) ? String(snap.tabs.filter((t) => t.workspace_id === to).length + 1) : tab.label;
+    const placeNamed = named === "" || named === String(place);
+    const label = placeNamed ? String(snap.tabs.filter((t) => t.workspace_id === to).length + 1) : tab.label;
     snap.tabs = [...snap.tabs.filter((t) => t !== tab), { ...tab, tab_id: tabId, workspace_id: to, number, label, focused: false }];
     snap.layouts = snap.layouts.filter((l) => l.tab_id !== tab.tab_id);
     Object.assign(panes[0]!, { tab_id: tabId, workspace_id: to, focused: false });
     const agent = snap.agents.find((entry) => entry.pane_id === panes[0]!.pane_id);
     if (agent) Object.assign(agent, { tab_id: tabId, workspace_id: to });
     addDemoLayout(to, tabId, panes[0]!.pane_id);
-    if (autoTabs.delete(tab.tab_id)) autoTabs.add(tabId);
+    // a tab named by its place keeps being named by it there, as herdr renumbers it
+    if (autoTabs.delete(tab.tab_id) || placeNamed) autoTabs.add(tabId);
     relabelAutoTabs(from);
     relabelAutoTabs(to);
     for (const w of snap.workspaces) {

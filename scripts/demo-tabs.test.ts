@@ -105,6 +105,10 @@ it("the demo moves a one-pane tab to another workspace without stale tab or work
     const unnamed = (await session()).tabs.filter((tab: any) => tab.workspace_id === from).at(-1).tab_id as string;
     const placed = await post("/api/tab/move-to-workspace", { tab_id: unnamed, workspace_id: to });
     assert.equal((await session()).tabs.find((tab: any) => tab.tab_id === placed.tab_id).label, "3");
+    // and goes on being named by its place: a tab closed before it renumbers it
+    const before3 = (await session()).tabs.filter((tab: any) => tab.workspace_id === to);
+    await post("/api/tab/close", { tab_id: before3[0].tab_id });
+    assert.equal((await session()).tabs.find((tab: any) => tab.tab_id === placed.tab_id).label, "2");
 
     // the last tab takes its workspace with it
     await post("/api/tab/move-to-workspace", { tab_id: `${from}:t2`, workspace_id: to });
