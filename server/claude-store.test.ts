@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import * as fsPromises from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, win32 } from "node:path";
 import { AmbiguousClaudeStore, attachedJob, claudeForegroundSession, claudeJobSession, claudeProcessSession, claudeSessionTempDir, claudeStoreKey, claudeStoreOf, claudeProjectDir, claudeTranscriptFile, claudeRecordOnlyIn, configDirInPsLine, darwinProcess, forgetClaudeSessions, herdrLaunchSource, isClaudeProcess, paneClaudeSource, processClaudeConfigDir, processClaudeSource, procArgsEnvironment } from "./claude-store.ts";
@@ -168,6 +169,17 @@ describe("a claude attach pane's job (#1645)", () => {
     writeFileSync(statePath(dir), JSON.stringify({ sessionId: SESSION, output: "x".repeat(256 * 1024) }));
     expect(await claudeJobSession(dir, JOB)).toBeNull();
     expect(await claudeJobSession(dir, "0badc0de")).toBeNull();
+  });
+
+  it("names no session when the state cannot be read off the disk", async () => {
+    const dir = store();
+    writeFileSync(statePath(dir), JSON.stringify({ sessionId: SESSION }));
+    const opened = spyOn(fsPromises, "open").mockImplementation(async () => { throw Object.assign(new Error("EIO: i/o error, open"), { code: "EIO" }); });
+    try {
+      // the pane keeps its terminal rather than the conversation route answering an error
+      expect(await claudeJobSession(dir, JOB)).toBeNull();
+      expect(opened).toHaveBeenCalled();
+    } finally { opened.mockRestore(); }
   });
 
   it.skipIf(!NATIVE)("reads no link, directory or FIFO in the state's place, without blocking", async () => {

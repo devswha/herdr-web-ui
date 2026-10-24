@@ -694,7 +694,7 @@ export async function claudeJobSession(configDir: string, job: string): Promise<
     return typeof session === "string" && SESSION_ID.test(session) ? session : null;
   } catch (error) {
     if (error instanceof SyntaxError || absent(error) ||
-      (error !== null && typeof error === "object" && "code" in error && ["EACCES", "EPERM", "ELOOP", "ENXIO", "EISDIR"].includes(String(error.code)))) return null;
+      (error !== null && typeof error === "object" && "code" in error && ["EACCES", "EIO", "EPERM", "ELOOP", "ENXIO", "EISDIR"].includes(String(error.code)))) return null;
     throw error;
   }
 }
