@@ -1017,6 +1017,43 @@ describe("WebSocket submit", () => {
     }
   }, 30_000);
 
+  it("answers a sender that switched to observe while an Esc for Claude's restored copy was on its way with its own refusal", async () => {
+    const socket = await Socket.connect();
+    let shown = claudeInputScreen("\u276f\u00a0");
+    const originalRead = herdr.paneRead;
+    const read = spyOn(herdr, "paneRead").mockImplementation(async (options, socketPath) => {
+      const result = await originalRead(options, socketPath);
+      return options.paneId === agent.pane ? { ...result, text: shown } : result;
+    });
+    const scroll = spyOn(herdr, "paneScrollInfo").mockResolvedValue(null);
+    const prompt = spyOn(herdr, "agentPrompt").mockResolvedValue(undefined);
+    const written: string[][] = [];
+    // herdr is reached for the first Esc after the sender switched to watching; herdrRpc asks the guard then
+    const sendKeys = spyOn(herdr, "paneSendKeys").mockImplementation(async (paneId, keys, _socketPath, guard) => {
+      if (paneId !== agent.pane || keys?.[0] !== "esc") return;
+      socket.send({ type: "role", mode: "observe" });
+      await socket.waitFor((frame) => frame.type === "role-ack" && frame.mode === "observe");
+      if (guard && !guard()) throw new herdr.HerdrError("cancelled", "herdr pane.send_keys was not sent");
+      written.push(keys);
+    });
+    try {
+      socket.send({ type: "submit", id: 42, pane_id: agent.pane, text: "chat message", payload: "chat message" });
+      expect(await socket.result(42)).toMatchObject({ ok: true });
+      // as on a cancel right after it: Claude removes the turn and puts the text back, typed
+      shown = claudeInputScreen("\u276f chat message");
+      socket.send({ type: "submit", id: 43, pane_id: agent.pane, text: "second message", payload: "second message" });
+      expect(await socket.result(43)).toMatchObject({ ok: false, code: "read_only" });
+      expect(written).toEqual([]);
+      expect(prompt).not.toHaveBeenCalledWith(agent.pane, "second message", undefined, expect.any(Function));
+    } finally {
+      sendKeys.mockRestore();
+      prompt.mockRestore();
+      scroll.mockRestore();
+      read.mockRestore();
+      socket.close();
+    }
+  }, 30_000);
+
   it("leaves Claude's restored copy alone when too little of the send's deadline is left to clear it and send", async () => {
     // a deadline shorter than clearing takes: the Esc presses would erase the copy, then the send time out
     const hurried = createServer({ port: 0, stateDir: join(root, "push-restored-hurried"), submitDeadlineMs: 1_000 });

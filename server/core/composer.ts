@@ -218,7 +218,10 @@ export async function claudeBoxReads(paneId: string): Promise<[string, string | 
  * `deadline` clears nothing: it would erase the copy, then time out without sending.
  */
 export async function freeClaudeBox(paneId: string, working: boolean, authorize: () => void, deadline: number): Promise<void> {
-  const allowed = (): boolean => { try { authorize(); return true; } catch { return false; } };
+  let refused: unknown;
+  const allowed = (): boolean => { try { authorize(); return true; } catch (error) { refused = error; return false; } };
+  // an Esc the guard stopped fails with the sender's own refusal (read_only, device_revoked), not herdr's `cancelled`
+  const refusal = (error: unknown): never => { throw refused ?? error; };
   const [live, colors] = await claudeBoxReads(paneId);
   if (!claudeInputDraft(live, colors)) return;
   if (working || claudeRestoredDraft(live, colors, await chatOwnedInput(paneId)) === null) {
@@ -228,11 +231,11 @@ export async function freeClaudeBox(paneId: string, working: boolean, authorize:
   // the read proved the box holds the copy: a lone Esc on an EMPTY box would open Claude's
   // rewind dialog instead
   authorize();
-  await paneSendKeys(paneId, ["esc"], undefined, allowed);
+  await paneSendKeys(paneId, ["esc"], undefined, allowed).catch(refusal);
   // fixed wait: Claude Code takes the second Esc only after a gap
   await Bun.sleep(RESTORED_CLEAR_GAP_MS);
   authorize();
-  await paneSendKeys(paneId, ["esc"], undefined, allowed);
+  await paneSendKeys(paneId, ["esc"], undefined, allowed).catch(refusal);
   // fixed wait: the box redraws after the two Esc presses before it reads empty
   await Bun.sleep(RESTORED_CLEAR_SETTLE_MS);
   if (claudeInputDraft(...await claudeBoxReads(paneId))) throw new HerdrError("input_draft", CLAUDE_INPUT_DRAFT_MESSAGE);
