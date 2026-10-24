@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import { skillSyntax } from "../../shared/skill-syntax.ts";
 import { agentDisplayLabel, composerDelivery, composerMessage, composerSendShown, composerPayload, composerModelDraw, composerStatusCompact, composerStatusHint, composerStatusWord, COMPOSER_STATUS_COMPACT_BELOW, contextLeftPercent, formatTokens, imageMention, insertLeadingMention, MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, rankSlashCommands, submitNote, submitNotTyped, submitRefusal, sameMessage, pendingActionUncertain } from "./compose.ts";
-import { briefDescription, COMMAND_GROUPS, commandGroup, commandsForTrigger, slashCommandReplacement, terminalCommand, terminalCommandActions, typedTerminalCommand } from "./compose.ts";
+import { briefDescription, COMMAND_GROUPS, commandGroup, commandsForTrigger, slashCommandReplacement, terminalCommand, typedTerminalCommand } from "./compose.ts";
 import type { SlashCommand } from "../../shared/protocol.ts";
 import { activeTrigger, applyCompletion, type ActiveTrigger } from "./mentions.ts";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -145,6 +145,9 @@ describe("composerMessage and submitNote", () => {
     // regression #541: a send dropped before its frame left the browser typed nothing
     expect(submitNotTyped("not_transmitted")).toBe(true);
     expect(submitNote("not_transmitted", "the connection dropped before this message was sent")).toBe("Not sent: the connection dropped before this message left. Send it again.");
+    // a send whose wait ended before the PC said what it supports typed nothing, and the note names that, not a drop (#1806)
+    expect(submitNotTyped("capabilities_unknown")).toBe(true);
+    expect(submitNote("capabilities_unknown", "this PC has not said yet what it supports; nothing was sent")).toBe("Not sent: this PC has not said yet what it supports. Send it again.");
     // a Send now that never left proves a held row unsent, not a queued one its turn's end may still type
     expect(pendingActionUncertain("not_transmitted", "held")).toBe(false);
     expect(pendingActionUncertain("not_transmitted", "queued")).toBe(true);
@@ -222,8 +225,8 @@ describe("composerPayload", () => {
 
 describe("imageMention", () => {
   it("references the stored file as an editable @path with a trailing space", () => {
-    expect(imageMention("/tmp/proj/.herdr-web-ui/paste-1.png")).toBe(
-      "@/tmp/proj/.herdr-web-ui/paste-1.png ",
+    expect(imageMention("/tmp/proj/.ovis/paste-1.png")).toBe(
+      "@/tmp/proj/.ovis/paste-1.png ",
     );
   });
 });
@@ -485,10 +488,6 @@ describe("terminal commands", () => {
     expect(typedTerminalCommand([plain, skill], "/compact")).toBeNull();
   });
 
-  it("offers Open Terminal to every role and Run in Terminal only to one that may send", () => {
-    expect(terminalCommandActions("interact")).toEqual(["open", "run"]);
-    expect(terminalCommandActions("observe")).toEqual(["open"]);
-  });
 });
 
 describe("the menu over a catalog the server built", () => {

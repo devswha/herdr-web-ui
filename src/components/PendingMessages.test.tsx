@@ -39,6 +39,24 @@ describe("a pending row's refusal note", () => {
     expect(html).not.toContain("the connection dropped before this message was sent");
   });
 
+  it("says a resend refused before the bridge said what it supports in the reader's language (#1809)", () => {
+    for (const language of ["ko", "ja", "zh"] as const) {
+      const note = translate(language, "Not sent: this PC has not said yet what it supports. Send it again.");
+      expect(note).not.toBe("Not sent: this PC has not said yet what it supports. Send it again.");
+      const html = render("capabilities_unknown", "this PC has not said yet what it supports; nothing was sent", [language], false);
+      expect(html).toContain(note);
+      expect(html).toContain("pending-message-send");
+      expect(html).not.toContain("this PC has not said yet what it supports; nothing was sent");
+    }
+  });
+
+  it("shows the still-open note as the composer wrote it, once", () => {
+    const note = translate("ko", "Not sent: {command} is still open in the terminal.", { command: "/btw" });
+    const html = render("still_open", note, ["ko"]);
+    expect(html).toContain(note);
+    expect(html).not.toContain(translate("ko", "Not sent: {message}", { message: note }));
+  });
+
   it("keeps the server's reason for other refusals", () => {
     expect(render("agent_blocked", "the agent is busy", ["en"])).toContain("Not sent: the agent is busy");
   });

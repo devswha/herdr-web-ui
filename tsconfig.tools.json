@@ -4,6 +4,10 @@
     "noEmit": true
   },
   "files": [
+    "integrations/gjc.ts",
+    "integrations/gjc.test.ts",
+    "scripts/install-gjc-integration.ts",
+    "scripts/install-gjc-integration.test.ts",
     "scripts/herdr-themes.ts",
     "scripts/herdr-theme-proposal.ts",
     "scripts/herdr-theme-overrides.ts",
@@ -39,6 +43,8 @@
     "scripts/lan-exposure-notice-regression.ts",
     "scripts/application-paging-regression.ts",
     "scripts/omo-question-wheel-regression.ts",
+    "scripts/mirror-scroll-demo-regression.ts",
+    "scripts/windows-terminal-browser-qa.ts",
     "scripts/terminal-cjk-punctuation-regression.ts",
     "scripts/pane-paging-demo-regression.ts",
     "scripts/omp-question-compat.ts",

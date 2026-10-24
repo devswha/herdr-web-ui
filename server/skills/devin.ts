@@ -1,8 +1,8 @@
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, join, relative, sep } from "node:path";
-import type { SlashCommand } from "../../shared/protocol.ts";
+import type { CommandForm, SlashCommand } from "../../shared/protocol.ts";
 import type { AgentCommandSource } from "./index.ts";
-import { customCommands, environValue, parseJsonc, plainObject, readFrontmatter, walkSkills } from "./walk.ts";
+import { createWalkBudget, customCommands, environValue, parseJsonc, plainObject, walkSkills } from "./walk.ts";
 
 /**
  * Devin CLI 3000.11.92, cross-checked against https://cli.devin.ai/docs/changelog: imported
@@ -51,10 +51,21 @@ const terminalBound = [
   "status", "context", "session-stats", "help", "usage", "workspaces", "recap", "steps",
   "model", "models", "fusion", "org", "billing", "login", "login-status", "resume",
   "config", "hooks", "mcp", "theme",
+  // checked on 3000.11.92 (2026-10-22): the shortcut picker, /btw's side chat with its own input, the handoff pickers,
+  // and logout, which signs out and leaves
+  "shortcuts", "btw", "handoff", "logout",
 ] as const;
-const forms = Object.fromEntries(terminalBound.map((name) => [
-  name, [{ match: "bare" as const, interaction: "terminal" as const }],
-]));
+const forms: Record<string, CommandForm[]> = {
+  ...Object.fromEntries(terminalBound.map((name) => [
+    name, [{ match: "bare" as const, interaction: "terminal" as const }],
+  ])),
+  // bare opens the "Select mode:" picker, the "Revert to step:" picker or the bug form; given a value they act
+  mode: [{ match: "bare", interaction: "terminal" }, { match: "other", interaction: "none" }],
+  revert: [{ match: "bare", interaction: "terminal" }, { match: "other", interaction: "unknown" }],
+  bug: [{ match: "bare", interaction: "terminal" }, { match: "other", interaction: "unknown" }],
+  // bare lists the directories; a directory Devin has not trusted yet asks "Do you trust the authors…?"
+  "add-dir": [{ match: "bare", interaction: "unknown" }, { match: "other", interaction: "terminal" }],
+};
 
 function importSettings(value: unknown): Map<string, boolean> {
   // Devin expects a structured object; arrays and other invalid values behave as no overrides.
@@ -94,6 +105,7 @@ export const source: AgentCommandSource = {
   terminalBound,
   forms,
   discover({ home, cwd, repoRoot, env }) {
+    const budget = createWalkBudget();
     const configHome = environValue(env, "XDG_CONFIG_HOME") ?? join(home, ".config");
     const dataHome = environValue(env, "XDG_DATA_HOME") ?? join(home, ".local", "share");
     const project = repoRoot ?? cwd;
@@ -108,7 +120,7 @@ export const source: AgentCommandSource = {
     }
     const found: { namespace: string; command: SlashCommand }[] = [];
     const add = (root: string, namespace: string, origin: SlashCommand["origin"], recursive = false, plugin = false): void => {
-      for (const skill of walkSkills(root, { depth: recursive ? "recursive" : "one", looseMarkdown: "none", ignoreFiles: false, requireDescription: false })) {
+      for (const skill of walkSkills(root, { depth: recursive ? "recursive" : "one", looseMarkdown: "none", ignoreFiles: false, requireDescription: false, budget })) {
         if (Array.isArray(skill.fields.triggers) && !skill.fields.triggers.includes("user")) continue;
         const name = basename(dirname(skill.path));
         found.push({ namespace, command: { name: plugin ? `${namespace}:${name}` : name, description: skill.description, source: "skill", origin, id: skill.id } });
@@ -135,9 +147,8 @@ export const source: AgentCommandSource = {
         add(join(base, ".claude", "skills"), "claude", origin, true);
         if (origin === "project") {
           const root = join(base, ".claude", "commands");
-          for (const command of customCommands(root, "skill")) {
-            const fields = readFrontmatter(join(root, ...command.name.split(":")) + ".md");
-            if (Array.isArray(fields?.triggers) && !fields.triggers.includes("user")) continue;
+          for (const command of customCommands(root, "skill", budget,
+            (fields) => !Array.isArray(fields.triggers) || fields.triggers.includes("user"))) {
             found.push({ namespace: "claude", command: { ...command, origin } });
           }
         }

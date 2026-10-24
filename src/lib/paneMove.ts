@@ -11,12 +11,12 @@ import { PANE_VIEW_KEY_PREFIX } from "./settings.ts";
 
 type KeyStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
-const CARRIED = ["herdr-web-ui:terminal-draft:", PANE_VIEW_KEY_PREFIX];
+const CARRIED = ["ovis:terminal-draft:", PANE_VIEW_KEY_PREFIX];
 
 export function carryPaneState(machineId: string, from: string, to: string, drafts: ComposerDraftStore = composerDrafts, storage: () => KeyStorage = () => window.localStorage): void {
   const before = paneStorageId(machineId, from);
   const after = paneStorageId(machineId, to);
-  drafts.move(`herdr-web-ui:composer-draft:${before}`, `herdr-web-ui:composer-draft:${after}`);
+  drafts.move(`ovis:composer-draft:${before}`, `ovis:composer-draft:${after}`);
   for (const prefix of CARRIED) {
     try {
       const value = storage().getItem(prefix + before);

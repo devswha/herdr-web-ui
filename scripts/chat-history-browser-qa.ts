@@ -5,8 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright-core";
 import { VOICE_DEFAULTS, type VoiceStatus } from "../shared/voice.ts";
+import type { HerdrUiConfig } from "../shared/protocol.ts";
 import type {} from "./chat-history-fixture.tsx";
 import { parseAgyTranscript } from "../server/agy.ts";
+import { buildXtermSource } from "./build-xterm.ts";
 import { chromePath } from "./chrome-path.ts";
 
 const root = mkdtempSync(join(tmpdir(), "herdr-history-browser-"));
@@ -25,13 +27,23 @@ function nextRoute(name: string): Promise<void> {
   });
 }
 try {
-  const build = await Bun.build({ entrypoints: ["scripts/chat-history-fixture.tsx"], outdir: root, target: "browser", define: { "process.env.NODE_ENV": '"development"' } });
+  // the app's own xterm, as Vite aliases it: the patched source, not the package's minified build
+  const xterm = buildXtermSource(join(import.meta.dir, ".."));
+  const build = await Bun.build({ entrypoints: ["scripts/chat-history-fixture.tsx"], outdir: root, target: "browser", define: { "process.env.NODE_ENV": '"development"' }, plugins: [{
+    name: "xterm-source-aliases",
+    setup(build) {
+      build.onResolve({ filter: /^@xterm\/xterm$/ }, () => ({ path: join(xterm, "browser/public/Terminal.js") }));
+      build.onResolve({ filter: /^(browser|common)\// }, ({ path }) => ({ path: join(xterm, path + ".js") }));
+    },
+  }] });
   assert.ok(build.success, String(build.logs));
   server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch(request) {
     const path = new URL(request.url).pathname;
     if (path === "/ws") return new Response(null, { status: 404 });
     // Product connection failures report only metadata; this fictional server consumes it locally.
     if (path === "/api/connection-diagnostics") return new Response(null, { status: 204 });
+    // the terminal reads herdr's copy_on_select as it mounts
+    if (path === "/api/herdr-ui") return Response.json({ copy_on_select: true } satisfies HerdrUiConfig, { headers: { "cache-control": "no-store" } });
     if (path.endsWith("/pane/commands")) return Response.json({ commands: [] });
     if (path.endsWith("/pane/omo-tasks")) return Response.json({ tasks: [], runs: [] });
     // a desktop's composer asks whether dictation can work here before it shows the mic

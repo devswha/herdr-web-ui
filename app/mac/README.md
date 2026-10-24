@@ -1,7 +1,7 @@
 # Ovis for Mac
 
 The one-click setup for a Mac, downloaded from https://ovis.sh as `Ovis.dmg`. The phone apps
-need herdr web UI running on the computer; this app sets that up without a terminal and shows the
+need the Ovis server running on the computer; this app sets that up without a terminal and shows the
 QR code the phone app scans.
 
 It is a small SwiftUI app with no code of its own for installing: everything goes through what a
@@ -9,7 +9,7 @@ terminal user runs, so the two never drift apart.
 
 | Button | What runs |
 | --- | --- |
-| **Install** | `install.sh`, downloaded fresh from https://herdrweb.dev/install.sh, with `HERDR_WEB_NO_OPEN=1` and an empty stdin. Then a LaunchAgent, `~/Library/LaunchAgents/sh.ovis.herdr-server.plist`, runs `herdr server` at login. |
+| **Install** | `install.sh`, downloaded fresh from https://ovis.sh/install.sh, with `OVIS_NO_OPEN=1` and an empty stdin. Then a LaunchAgent, `~/Library/LaunchAgents/sh.ovis.herdr-server.plist`, runs `herdr server` at login. |
 | Status (on open) | `herdr plugin list --json` finds the plugin, `scripts/plugin.ts status` gives its address, and `GET /api/access` gives the phone address, drawn as a QR code. |
 | **Make the phone address** | `scripts/plugin.ts phone`, the installer's Tailscale step. |
 | **Restart** / **Start** | The plugin's `stop` and `start` actions, or the LaunchAgent when herdr is not running. |
@@ -52,3 +52,31 @@ open -n --env CFFIXED_USER_HOME="$h" --env HOME="$h" app/mac/build/Ovis.app
 
 The LaunchAgent's label is the same for every home, so remove it after such a test:
 `launchctl bootout gui/$(id -u)/sh.ovis.herdr-server`, then `HOME="$h" herdr server stop`.
+
+## Releases
+
+Every release gets a signed, notarized `Ovis.dmg` with no hand work. After the Release workflow
+publishes `vX.Y.Z`, its `mac-dmg` job runs [mac-dmg.yml](../../.github/workflows/mac-dmg.yml) on a
+GitHub-hosted Mac: it checks out the tag, imports the Developer ID into a temporary keychain, runs
+`build.sh` with the version `X.Y.Z`, notarizes and staples the DMG, and attaches it to the release
+as `Ovis.dmg`.
+
+The site's Mac download button, `https://ovis.sh/Ovis.dmg`, redirects to
+`https://github.com/devswha/ovis/releases/latest/download/Ovis.dmg`. So that it never lands on a
+release without a DMG, Release publishes without marking the release latest, and this job marks it
+latest once the DMG is attached (only when its tag is the newest `v*` tag).
+
+The job needs these repository secrets (Settings → Secrets and variables → Actions):
+
+| Secret | What it holds |
+| --- | --- |
+| `MAC_DEVELOPER_ID_P12` | The "Developer ID Application" certificate with its private key, exported from Keychain Access as a `.p12`, base64 encoded (`base64 -i developer-id.p12 \| pbcopy`). |
+| `MAC_DEVELOPER_ID_P12_PASSWORD` | The password the `.p12` was exported with. |
+| `MAC_NOTARY_KEY_P8` | An App Store Connect API key (`AuthKey_<id>.p8`, Users and Access → Integrations, Developer access), base64 encoded. |
+| `MAC_NOTARY_KEY_ID` | That key's ID. |
+| `MAC_NOTARY_ISSUER` | The issuer ID shown above the keys on the same page. |
+
+Without all five the job skips with a notice naming the missing ones, and the release itself still
+succeeds, but the previous release stays latest until it gets its DMG. To give a release its DMG
+later (after setting the secrets, or when the job failed), run **Actions → Mac app → Run workflow** on `main` with the tag, or
+`gh workflow run mac-dmg.yml --ref main -f tag=vX.Y.Z`. It replaces an `Ovis.dmg` already there.

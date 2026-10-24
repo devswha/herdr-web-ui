@@ -156,7 +156,9 @@ try {
       if (!value || typeof value !== "object") return value;
       if (Array.isArray(value)) { value.forEach(fix); return value; }
       if (value.pane_id === TARGET && "agent_status" in value) {
-        if ("agent" in value) Object.assign(value, { agent: window.fitCase.agent, background_tasks: 2 });
+        // the chip without its step in progress: this script measures the model label's room, which
+        // the step (plan-chip-demo-regression.ts) is drawn after and may take from
+        if ("agent" in value) Object.assign(value, { agent: window.fitCase.agent, background_tasks: 2, ...(value.plan ? { plan: { ...value.plan, current: null } } : {}) });
         value.agent_status = window.fitCase.status;
       }
       if ("prompt" in value && window.fitCase.suggestion !== undefined) value.suggestion = window.fitCase.suggestion;
@@ -219,7 +221,7 @@ try {
     const context = await browser.newContext({ viewport: { width, height: 844 }, hasTouch: touch, isMobile: touch, locale: state.language ?? "en-US" });
     try {
       await context.addInitScript((fitCase) => {
-        if (localStorage.getItem("herdr-web-ui:settings") === null) localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: fitCase.language ?? "en", voiceInput: fitCase.mic ? "on" : "off", chatFontSize: fitCase.chatFontSize ?? null, showUsage: fitCase.showUsage ?? false, usageCount: "used" }));
+        if (localStorage.getItem("ovis:settings") === null) localStorage.setItem("ovis:settings", JSON.stringify({ language: fitCase.language ?? "en", voiceInput: fitCase.mic ? "on" : "off", chatFontSize: fitCase.chatFontSize ?? null, showUsage: fitCase.showUsage ?? false, usageCount: "used" }));
         Object.assign(window, { fitCase });
       }, { agent: "claude", pending: true, status: "working", effort: "xhigh", mic: false, ring: true, ...state });
       const page = await context.newPage();
