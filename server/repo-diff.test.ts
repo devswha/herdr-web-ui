@@ -465,6 +465,28 @@ describe("a branch against a base", () => {
     }
   });
 
+  it("refuses a patch when a checkout lands while it is read, never answering it under the old identity", async () => {
+    const racy = repository("branch-race");
+    writeFileSync(join(racy, "a.txt"), "base\n");
+    git(racy, "add", ".");
+    git(racy, "commit", "-q", "-m", "base");
+    git(racy, "checkout", "-q", "-b", "other");
+    writeFileSync(join(racy, "a.txt"), "other-branch-content\n");
+    git(racy, "commit", "-q", "-a", "-m", "other");
+    git(racy, "checkout", "-q", "-b", "feature", "main");
+    writeFileSync(join(racy, "a.txt"), "feature-content\n");
+    git(racy, "commit", "-q", "-a", "-m", "feature");
+    const list = await repoDiffFiles(racy, query({ scope: "branch", base: "main" }));
+    // the stand-in checks out another branch once, right before the patch itself is read
+    const marker = join(scratch, "race-checked-out");
+    const racer = join(scratch, "racing-git");
+    writeFileSync(racer, `#!/bin/sh\ncase "$*" in *" diff "*-U3*) [ -f '${marker}' ] || { touch '${marker}'; git -C '${racy}' checkout -q other; } ;; esac\nexec git "$@"\n`);
+    chmodSync(racer, 0o755);
+    await expect(repoDiffFile(racy, pinned(list, { path: "a.txt" }), { git: racer })).rejects.toMatchObject({ code: "comparison_changed", status: 409 });
+    expect(existsSync(marker)).toBeTrue();
+    expect(git(racy, "rev-parse", "HEAD").trim()).not.toBe(list.comparison!.head_oid);
+  });
+
   it("never fetches, checks out or writes while comparing a branch", async () => {
     const log = join(scratch, "git-calls.log");
     const logging = join(scratch, "logging-git");
