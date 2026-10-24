@@ -48,9 +48,10 @@ Messages say only what the person needs now, not everything the app knows:
   clear before confirmation. T3 Code's [outlined destructive button](https://github.com/pingdotgg/t3code/blob/main/apps/web/src/components/ui/button.tsx)
   is a reference for restrained destructive treatment and focus feedback; this uses herdr's
   existing danger tokens and borrows no code. A hovered danger button keeps its tint and border
-  everywhere in the app, never the neutral hover fill. A pending PC removal is only lightly dimmed
-  so its warning text and border stay readable in both light and dark themes; disabled because
-  another action of the panel is running, Remove PC dims like its neighbours.
+  everywhere in the app, never the neutral hover fill, and draws that border twice as thick, so the
+  pointer still shows. A pending PC removal keeps its full strength so its warning text and border
+  stay readable in every theme; disabled because another action of the panel is running, Remove PC
+  dims like its neighbours.
 
 ## 2. Color
 
@@ -1183,8 +1184,9 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
 - SSH PC management stays inline: its rename form and action buttons reflow within the sidebar
   instead of floating over it. Rename shares the name field's row where both fit and goes under
   the field in a narrow sidebar; the action buttons wrap into rows that share a height. A
-  one-line button is `--control-h` tall, as the field beside it, and only a wrapped label grows
-  its button. Wrapping labels keep controls contained at narrow widths, with touch-sized buttons
+  one-line button is `--control-h` tall, as the field beside it (`--touch-target` on a coarse
+  pointer, where Rename keeps its own line under the field), and only a wrapped label grows its
+  button. Wrapping labels keep controls contained at narrow widths, with touch-sized buttons
   on coarse pointers. This follows the
   width-constrained responsive sidebar in [T3 Code](https://github.com/pingdotgg/t3code/blob/main/apps/web/src/components/ui/sidebar.tsx)
   but keeps herdr's existing inline panel instead of adopting its mobile sheet; no code is borrowed.
@@ -1288,14 +1290,16 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   route, is said in one hint line. Start sends exactly one create: a ref-held in-flight guard
   (`lib/sessionHistory.ts` inFlightGuard) refuses a second press before the disabled fields have
   rendered.
-- In a mouse-driven window the chat's composer can show a **New tab with an agent…** icon button
+- In a mouse-driven window wider than 640px (the composer's own `(max-width: 640px), (pointer:
+  coarse)` query) the chat's composer can show a **New tab with an agent…** icon button
   (lucide `MessageSquarePlus`, beside Attach) that opens this dialog as New tab on the pane's
   workspace, as the tab menu does. It is off until this device turns it on (Settings → Chat →
   Composer, **New tab button**, the device setting `composerNewTabButton`): the composer's row stays
   minimal, as the Codex and Claude apps keep theirs (attach and the mic; a new thread starts from the
   sidebar), and the tab menu opens the same dialog either way. A phone's card has no row to spare for
   it beside the mic and the tasks chip (the model label would lose its pill), so there the tab's own
-  menu keeps **New tab with agent…** and Settings does not offer the toggle on a touch screen.
+  menu keeps **New tab with agent…**, and Settings does not offer the toggle on a touch screen or in
+  a window 640px wide or narrower.
   The existing shortcuts are untouched.
 - The design follows the Codex app's new thread screen (the model and reasoning-effort pickers
   under the prompt box, the prompt sent as the thread starts) and Claude Code's own session flags
@@ -2291,8 +2295,8 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   replaces the one entry. A reload steps out of the entries it finds; Forward reopens the page.
 - Pages, in order: **Appearance** (theme, dark theme, light theme, density, language, sidebar rows), **Chat**
   (panes open in, show thinking, chat width, chat font size and family; then
-  **Composer**: Enter sends, send queued messages automatically, in a mouse-driven window the New tab
-  button (off by default), and on a touch screen the suggestion chip (off by default); then
+  **Composer**: Enter sends, send queued messages automatically, in a mouse-driven window wider than
+  640px the New tab button (off by default), and on a touch screen the suggestion chip (off by default); then
   **Quick replies**; then **File viewer**: wrap long lines, Markdown width, Diff layout), **Terminal** (font size, font family, wheel
   speed, input mode, Key bar, Clipboard from a pane, Use alongside herdr's own window, Follow
   herdr's focus), **Alerts**, **Voice input**, **Subscription usage**,
