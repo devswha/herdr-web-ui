@@ -222,6 +222,17 @@ describe("sidebarFilter", () => {
     roster.forEach((machine, index) => expect(machine.snapshot?.panes).toBe(panes[index]));
   });
 
+  it("keeps a kept worktree under the head it is drawn under, whatever head the roster's order gave it", () => {
+    // the reorder coordinator draws its own order while a move lands; the filter read herdr's
+    const repo = { repo_key: "r", repo_name: "r" };
+    const alpha = workspace("alpha", "alpha", { ...repo, linked: false });
+    const beta = workspace("beta", "beta", { ...repo, linked: false });
+    const child = workspace("child", "uniquechild", { ...repo, linked: true });
+    const kept = sidebarFilter("uniquechild", [{ id: "pc", name: "PC", snapshot: { workspaces: [alpha, child, beta], panes: [], tabs: [], agents: [] } as unknown as SessionSnapshot }], { machineId: "pc", paneId: null }, t).machines.get("pc")!.workspaces;
+    const drawn = filterWorkspaceGroups(worktreeGroups([alpha, beta, child]), kept);
+    expect(drawn.flatMap((group) => group.children.map((c) => c.workspace_id))).toEqual(["child"]);
+  });
+
   it("suggests the names the rows show, never a path", () => {
     const roster = machines();
     const suggested = filterSuggestions(roster, new Map([["local", new Map([["guard", "feat/export-guard"]])]]));

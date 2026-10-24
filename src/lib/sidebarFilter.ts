@@ -228,7 +228,10 @@ export function machineFilter(filter: SidebarFilter, machineId: string): Machine
  * loses a match).
  */
 export function filterWorkspaceGroups<W extends Pick<WorkspaceInfo, "workspace_id">>(groups: readonly WorkspaceGroup<W>[], kept: ReadonlySet<string>): WorkspaceGroup<W>[] {
-  return groups.flatMap((group) => kept.has(group.workspace.workspace_id)
-    ? [{ workspace: group.workspace, children: group.children.filter((child) => kept.has(child.workspace_id)) }]
-    : []);
+  // a kept worktree stays under the head it is drawn under, which the filter may not have kept: a
+  // reorder draws its own order until herdr's catches up. That head is then drawn as context
+  return groups.flatMap((group) => {
+    const children = group.children.filter((child) => kept.has(child.workspace_id));
+    return kept.has(group.workspace.workspace_id) || children.length > 0 ? [{ workspace: group.workspace, children }] : [];
+  });
 }
