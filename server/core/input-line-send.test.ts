@@ -21,7 +21,7 @@ const herdr = () => ({
 it("sends one long input line to the pane's agent as its prompt, not typed raw", async () => {
   const { prompt, typed, keys } = herdr();
   await submitter()("w:p1", LONG, LONG, Date.now(), true);
-  expect(prompt).toHaveBeenCalledWith("w:p1", LONG);
+  expect(prompt).toHaveBeenCalledWith("w:p1", LONG, undefined, expect.any(Function));
   expect(typed).not.toHaveBeenCalled();
   expect(keys).not.toHaveBeenCalled();
 });
@@ -43,6 +43,22 @@ for (const code of ["agent_not_found", "agent_not_ready", "agent_blocked"]) {
     expect(keys).toHaveBeenCalledWith("w:p1", ["Enter"]);
   });
 }
+
+it("writes and types nothing of a long input line whose sender may no longer type once herdr is reached", async () => {
+  const { prompt, typed, keys } = herdr();
+  let watching = false;
+  const authorize = () => { if (watching) throw new client.HerdrError("read_only", "this connection can only watch"); };
+  // herdrRpc asks the guard once connected, right before the prompt is written
+  prompt.mockImplementation(async (_target, _text, _socketPath, guard) => {
+    watching = true;
+    if (guard && !guard()) throw new client.HerdrError("cancelled", "herdr agent.prompt was not sent");
+  });
+  const failed = await submitter()("w:p1", LONG, LONG, Date.now(), true, authorize).then(() => null, (error: unknown) => error);
+  expect(failed).toBeInstanceOf(client.HerdrError);
+  expect((failed as client.HerdrError).code).toBe("read_only");
+  expect(typed).not.toHaveBeenCalled();
+  expect(keys).not.toHaveBeenCalled();
+});
 
 it("never types a long input line after its prompt failed in a way that may have delivered it", async () => {
   const { prompt, typed, keys } = herdr();

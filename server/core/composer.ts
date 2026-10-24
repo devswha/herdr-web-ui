@@ -509,12 +509,19 @@ export function createSubmitText({ options, lastTyped, attachments, terminalAtta
       // one long line from the input line: herdr's agent.prompt pastes it in the agent's own paste mode and
       // returns once its Enter followed (TYPED_LINE_MAX). An agent waiting for an answer, or none, is typed into.
       if (fromTerminal && !sentText.includes("\n") && sentText.length > TYPED_LINE_MAX) {
+        // the sender is asked once more right before herdr is written to: it can be revoked, or switch to
+        // watching, while the connection opens. Its refusal sends nothing, and nothing is typed instead.
+        let refused: unknown;
+        const mayType = (): boolean => {
+          try { authorize(); return true; } catch (error) { refused = error; return false; }
+        };
         try {
           inTime();
-          await agentPrompt(paneId, closeMention(sentText));
+          await agentPrompt(paneId, closeMention(sentText), undefined, mayType);
           noteSubmitted(paneId, sentText, recorded(command));
           return;
         } catch (error) {
+          if (refused !== undefined) throw refused;
           if (!(error instanceof HerdrError) || !PROMPT_REFUSED.has(error.code)) throw error;
         }
       }

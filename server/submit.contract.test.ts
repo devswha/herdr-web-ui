@@ -114,6 +114,9 @@ class Socket {
 
 const paste = (text: string) => `\u001b[200~${text}\u001b[201~`;
 
+// #1174: typed raw, a long line reached Claude Code in pty-sized reads, and it kept only the tail
+const longLine = Array.from({ length: 24 }, (_, i) => `This is sentence number ${i + 1} of a long dictated message.`).join(" ");
+
 /** A promise the test settles itself: it orders a server's step against the test's own. */
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve!: () => void;
@@ -1213,9 +1216,6 @@ describe("WebSocket submit", () => {
     }
   }, 30_000);
 
-  // #1174: typed raw, a long line reached Claude Code in pty-sized reads, and it kept only the tail
-  const longLine = Array.from({ length: 24 }, (_, i) => `This is sentence number ${i + 1} of a long dictated message.`).join(" ");
-
   it("hands an agent one long line from the terminal's input line through agent.prompt, pasted whole", async () => {
     const socket = await Socket.connect();
     try {
@@ -1863,6 +1863,40 @@ describe("typing without terminal attach, at the edges", () => {
     } finally {
       gate.resolve();
       keys.mockRestore();
+      sender.close();
+      keeper.close();
+      bare.stop();
+    }
+  }, 30_000);
+
+  it("writes no long input-line line for a sender that switched to observe while herdr was being reached", async () => {
+    const bare = createServer({ port: 0, stateDir: join(root, "observe-long-line"), terminalAttach: false });
+    const sender = await Socket.connect(bare.port);
+    const keeper = await Socket.connect(bare.port);
+    const gate = deferred();
+    const entered = deferred();
+    const originalPrompt = herdr.agentPrompt;
+    // every check before the RPC has passed; the sender switches to watching before herdr is written to
+    const prompt = spyOn(herdr, "agentPrompt").mockImplementation(async (target, text, socketPath, guard) => {
+      if (target === agent.pane && text === longLine) { entered.resolve(); await gate.promise; }
+      return originalPrompt(target, text, socketPath, guard);
+    });
+    try {
+      for (const socket of [keeper, sender]) await attached(socket, agent.pane);
+      const from = chunks(agent).length;
+      sender.send({ type: "submit", id: 1176, pane_id: agent.pane, text: longLine, payload: longLine, typed: true });
+      await entered.promise;
+      sender.send({ type: "role", mode: "observe" });
+      await sender.waitFor((message) => message.type === "role-ack" && message.mode === "observe");
+      gate.resolve();
+      expect(await sender.result(1176)).toMatchObject({ ok: false, code: "read_only" });
+      keeper.send({ type: "submit", id: 1177, pane_id: agent.pane, text: "after", payload: "after", typed: true });
+      expect(await keeper.result(1177)).toMatchObject({ ok: true });
+      await received(agent, from, 1);
+      expect(typed(agent, from)).toBe("after\r");
+    } finally {
+      gate.resolve();
+      prompt.mockRestore();
       sender.close();
       keeper.close();
       bare.stop();
