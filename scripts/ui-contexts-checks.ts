@@ -10,6 +10,7 @@ import { checkPushSettings } from "./push-settings-regression.ts";
 import { checkWakeLock } from "./wake-lock-regression.ts";
 import { checkSecretInput } from "./secret-input-regression.ts";
 import { checkTerminalCopy } from "./terminal-copy-regression.ts";
+import { checkTerminalCopyOff } from "./terminal-copy-off-regression.ts";
 import { checkPaneFind } from "./pane-find-regression.ts";
 import { checkUsageMeters } from "./usage-regression.ts";
 import { checkNotificationStartup } from "./notification-startup-regression.ts";
@@ -90,6 +91,7 @@ export async function runUiContextChecks(): Promise<void> {
     await timed("checkWakeLock", () => checkWakeLock(browser!, origin, paneA));
     await timed("checkSecretInput", () => checkSecretInput(browser!, origin));
     await timed("checkTerminalCopy", () => checkTerminalCopy(browser!, origin));
+    await timed("checkTerminalCopyOff", () => checkTerminalCopyOff(browser!));
     await timed("checkPaneFind", () => checkPaneFind(browser!, origin));
     await timed("checkUsageMeters", () => checkUsageMeters(browser!, origin));
     await timed("checkNotificationStartup", () => checkNotificationStartup(browser!, origin, paneA, paneB));
