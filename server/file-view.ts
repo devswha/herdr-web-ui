@@ -287,7 +287,8 @@ export function pageMediaResponse(token: string, client: string | null, request:
     "cache-control": "private, no-store",
     "content-security-policy": "sandbox; default-src 'none'",
   });
-  const range = byteRange(request?.headers.get("range") ?? null, request?.headers.has("if-range") ?? false, file.size);
+  // RFC 9110 defines a range for GET alone: a HEAD describes the whole file
+  const range = request?.method === "GET" ? byteRange(request.headers.get("range"), request.headers.has("if-range"), file.size) : null;
   if (range === "unsatisfiable") {
     release(file.fd);
     headers.set("content-range", `bytes */${file.size}`);
@@ -312,14 +313,15 @@ export function pageMediaResponse(token: string, client: string | null, request:
  * An end past the last byte means the last byte.
  */
 function byteRange(header: string | null, ifRange: boolean, size: number): [number, number] | "unsatisfiable" | null {
-  if (header === null || ifRange) return null;
+  // an empty file has no byte to send a range of: the whole of it is the answer
+  if (header === null || ifRange || size === 0) return null;
   const match = /^bytes=(\d*)-(\d*)$/i.exec(header.trim());
   if (match === null) return null;
   const [first, last] = [match[1]!, match[2]!];
   if (first === "" && last === "") return null;
   if (first === "") {
     const suffix = Number(last);
-    return suffix === 0 || size === 0 ? "unsatisfiable" : [Math.max(0, size - suffix), size - 1];
+    return suffix === 0 ? "unsatisfiable" : [Math.max(0, size - suffix), size - 1];
   }
   const start = Number(first);
   if (last !== "" && Number(last) < start) return null;
@@ -428,13 +430,15 @@ function rootOf(file: string, roots: readonly string[]): string | undefined {
 }
 
 /**
- * Test seams for the steps of `openAuthorized` and the descriptors it hands out; never set outside
- * tests. `platform` and `uid` stand in for the process's own, `fstat`, `readlink` and `read` for
- * the filesystem calls they name, and the other hooks run at the moment they name.
+ * Test seams for the steps of `openAuthorized` and the descriptors it hands out, and for the page's
+ * own folder (`pageWithLocalFiles`); never set outside tests. `platform` and `uid` stand in for the
+ * process's own, `fstat`, `readlink` and `read` for the filesystem calls they name, and the other
+ * hooks run at the moment they name.
  */
 export const pageFileHooks: {
   platform?: NodeJS.Platform;
   uid?: () => number | undefined;
+  pageFolder?: (folder: string) => void;
   afterResolve?: (file: string) => void;
   afterOpen?: (file: string) => void;
   beforeIdentity?: (file: string) => void;
@@ -547,8 +551,8 @@ function ownedFolders(root: string, file: string, uid: number | undefined): bool
  * None by default: a page that came with its own symlinks (an unpacked archive, a cloned
  * repository) could otherwise name any of this PC's videos, and whether one plays would tell it
  * that the file exists; in a folder named here, any page may learn that. Read on every render, so
- * a share mounted later counts. On macOS a share owned by another user, or one its group may write
- * to, plays nothing (`openAuthorized`).
+ * a share mounted later counts. On macOS a share owned by another user, or one its group or anyone
+ * else may write to, plays nothing (`openAuthorized`).
  */
 function mediaRoots(): string[] {
   const roots: string[] = [];
@@ -611,16 +615,20 @@ interface PageAsset { target: string; mime: string; size: number; data: string |
  * page. Null when the page is not a file of at most `EMBED_PAGE_BYTES`, or changed while it was read.
  */
 export function pageWithLocalFiles(path: string, media: PageMedia | null = null): string | null {
-  // the page's folder is fixed before the page is opened: resolved after it was read, a folder swapped
-  // for a link in between would make the link's target the folder its files are allowed from
+  // the page's folder is fixed before the page is opened, and the page read must be the file of its
+  // name in that folder: a folder swapped for a link around either look would otherwise make the
+  // link's target the folder the page's files are allowed from
   let folder: string;
   try { folder = realpathSync(dirname(path)); } catch { return null; }
+  pageFileHooks.pageFolder?.(folder);
   let html: string;
   let fd: number;
   try { fd = openSync(path, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0)); } catch { return null; }
   try {
     const page = fstatBig(fd);
     if (!page.isFile() || page.size > BigInt(EMBED_PAGE_BYTES)) return null;
+    const named = statSync(join(folder, basename(path)), { bigint: true });
+    if (named.dev !== page.dev || named.ino !== page.ino) return null;
     const bytes = readWhole(fd, Number(page.size), page.mtimeNs);
     if (bytes === null) return null;
     html = bytes.toString("utf8");

@@ -437,9 +437,11 @@ blocks of `src/styles.css`.
   scripts and stylesheets it takes from its folder, and the videos it plays from this server, are
   read only from a descriptor whose opened file was shown to lie in the page's folder (or a folder
   in `OVIS_MEDIA_ROOTS`) with no hidden name on the way (`openAuthorized` in
-  `server/file-view.ts`). The page's folder is resolved once, before the page is opened, and stays
-  that path: a folder swapped for a link afterwards leads nowhere it allows, but someone allowed to
-  rename folders in its parent could move another real folder into its place. The path is resolved and checked again after the open and must still
+  `server/file-view.ts`). The page's folder is resolved once, before the page is opened, and the
+  page read must be the file of its name there (the same device and inode); it stays that path: a
+  folder swapped for a link around either look leads nowhere it allows, but someone allowed to
+  rename folders in its parent could move another real folder into its place while the page's
+  files are looked up. Each file's path is resolved and checked again after the open and must still
   name the opened file, but a sample of a path is not a proof, so each platform adds its own:
   Linux checks the kernel's path of the opened file (`/proc/self/fd`), and refuses one it cannot
   read or that was deleted; macOS requires every folder from that root down to the file's own to

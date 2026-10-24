@@ -615,12 +615,43 @@ describe("page files read through the descriptor that was validated", () => {
 
   it("refuses a failing fstat or stat", async () => {
     const { page } = layout();
-    pageFileHooks.fstat = () => { throw Object.assign(new Error("EIO"), { code: "EIO" }); };
-    expect(drawn(await render(page))).toEqual({ picture: false, tokens: [], outsideBytes: false });
+    // the page's own read is the first look by descriptor; each of its files' looks fails
+    let looks = 0;
+    pageFileHooks.fstat = (fd) => {
+      looks += 1;
+      if (looks === 1) return fstatSync(fd, { bigint: true });
+      throw Object.assign(new Error("EIO"), { code: "EIO" });
+    };
+    let html = await render(page);
+    expect(looks).toBeGreaterThan(1);
+    expect(html).toContain(`<img id="pic" src="sub/f.png">`);
+    expect(drawn(html)).toEqual({ picture: false, tokens: [], outsideBytes: false });
     delete pageFileHooks.fstat;
     // gone between the second resolution and its stat
     pageFileHooks.beforeIdentity = (file) => rmSync(file);
-    expect(drawn(await render(page))).toEqual({ picture: false, tokens: [], outsideBytes: false });
+    html = await render(page);
+    expect(html).toContain(`<img id="pic" src="sub/f.png">`);
+    expect(drawn(html)).toEqual({ picture: false, tokens: [], outsideBytes: false });
+  });
+
+  it.skipIf(windows)("sends an empty file whole, whatever range is asked", async () => {
+    const { root, site, page } = layout();
+    // an empty recording is put into no page: one from a share plays from an address
+    const share = join(root, "share");
+    mkdirSync(share);
+    chmodSync(share, 0o755);
+    writeFileSync(join(share, "take.mp4"), "");
+    symlinkSync(join(share, "take.mp4"), join(site, "take.mp4"));
+    writeFileSync(page, `<video id="clip" src="take.mp4"></video>`);
+    process.env["OVIS_MEDIA_ROOTS"] = share;
+    const [token] = drawn(await render(page)).tokens;
+    expect(token).toBeDefined();
+    for (const range of ["bytes=-1", "bytes=0-"]) {
+      const response = pageMediaResponse(token!, null, new Request("http://x/", { headers: { range } }))!;
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-length")).toBe("0");
+      expect((await response.arrayBuffer()).byteLength).toBe(0);
+    }
   });
 
   it.skipIf(windows)("refuses a leaf swapped for a link before the open, or after it", async () => {
@@ -669,6 +700,29 @@ describe("page files read through the descriptor that was validated", () => {
     const html = await render(page);
     expect(swapped).toBe(true);
     expect(drawn(html)).toEqual({ picture: false, tokens: [], outsideBytes: false });
+  });
+
+  it.skipIf(windows)("refuses a page that is not the file of its name in the folder it was resolved to", async () => {
+    const { root, site, page } = layout();
+    const hidden = join(root, ".private");
+    mkdirSync(join(hidden, "sub"), { recursive: true });
+    writeFileSync(join(hidden, "sub", "f.png"), png("OUTSIDE-SECRET"));
+    marked(join(hidden, "sub", "clip.mp4"), "OUTSIDE-SECRET");
+    const found = fileInfo(page)!;
+    // the page's folder is a link to that folder while it is resolved, and the page's own again once it is opened
+    const parked = join(root, "parked");
+    renameSync(site, parked);
+    symlinkSync(hidden, site);
+    let resolvedTo = "";
+    pageFileHooks.pageFolder = (folder) => {
+      resolvedTo = folder;
+      unlinkSync(site);
+      renameSync(parked, site);
+    };
+    const response = fileResponse(found, false, true, owner());
+    expect(resolvedTo).toBe(hidden);
+    expect(response.status).toBe(404);
+    expect(drawn(await response.text())).toEqual({ picture: false, tokens: [], outsideBytes: false });
   });
 
   // Windows refuses to rename a folder while a file in it is open, so the swap cannot be staged there
@@ -800,9 +854,11 @@ describe("page files read through the descriptor that was validated", () => {
           expect(Buffer.from(await part.arrayBuffer()).equals(bytes.subarray(start, end + 1))).toBe(true);
           await closing(opened.at(-1)!);
         }
+        // a range is defined for GET alone: HEAD describes the whole file
         const headRange = await fetch(url, { method: "HEAD", headers: { range: "bytes=0-9" } });
-        expect(headRange.status).toBe(206);
-        expect(headRange.headers.get("content-range")).toBe(`bytes 0-9/${BIG}`);
+        expect(headRange.status).toBe(200);
+        expect(headRange.headers.get("content-length")).toBe(String(BIG));
+        expect(headRange.headers.get("content-range")).toBeNull();
         expect(live.size).toBe(0);
       } finally { stop(); }
     });
