@@ -133,6 +133,21 @@ bun run start
 service manager, so it keeps running. Settings are environment variables on that command.
 `bun run server` and `bun run dev` are development commands and do not update themselves.
 
+On Linux and macOS, a service manager may start with a smaller `PATH` than an interactive shell.
+Use the existing launcher so Bun, Node and agents installed in `~/.local/bin` are discoverable.
+For example, a systemd unit's `[Service]` section can use:
+
+```ini
+WorkingDirectory=/absolute/path/to/ovis
+ExecStart=/bin/sh /absolute/path/to/ovis/scripts/with-bun.sh run start
+```
+
+Run the service as the user who installed the agents, with that user's `HOME`. The launcher adds
+the usual user-local directories after the existing `PATH`, preserving its command choices.
+If an installed agent such as Grok is missing from the new-session picker, check the service's
+`PATH`: the picker hides agents the server cannot find. Restart the web UI after changing the
+service configuration.
+
 ## 4. Verify
 
 ```bash
