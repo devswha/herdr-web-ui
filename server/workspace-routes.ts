@@ -310,6 +310,7 @@ export async function handleWorkspaceRequest(request: Request, url: URL, pathnam
 
   // herdr moves tabs only within their workspace: a one-pane tab goes as its pane, into a new tab there
   if (pathname === "/api/tab/move-to-workspace") {
+    setRequestRoute(pathname);
     if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
     const payload = await readJsonObject<{ tab_id?: unknown; workspace_id?: unknown }>(request);
     if (payload instanceof Response) return payload;

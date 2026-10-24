@@ -15,7 +15,7 @@ import "./TabStrip.css";
 
 import type { HerdrPane, HerdrTab, PaneInfo, SessionSnapshot, WorkspaceInfo } from "../../shared/protocol.ts";
 import { MAX_LABEL_CHARS } from "../../shared/labels.ts";
-import { ApiError } from "../lib/api.ts";
+import { ApiError, routeMissing } from "../lib/api.ts";
 import { useFacesArrived } from "../lib/fontFaces.ts";
 import { focusWorkspaceListToggle } from "../lib/focus.ts";
 import { useT } from "../lib/i18n.ts";
@@ -355,7 +355,7 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
   const canMoveOut = (tab: HerdrTab): boolean => onMoveToWorkspace !== undefined && otherWorkspaces.length > 0 && panesOf(tab).length === 1;
   const moveToWorkspace = (tab: HerdrTab, workspaceId: string): void => {
     setError(null);
-    void onMoveToWorkspace?.(tab.tab_id, workspaceId).catch((reason: unknown) => setError(t("Move failed: {reason}", { reason: said(reason) })));
+    void onMoveToWorkspace?.(tab.tab_id, workspaceId).catch((reason: unknown) => setError(routeMissing(reason) ? t("This PC's bridge does not offer this yet") : t("Move failed: {reason}", { reason: said(reason) })));
   };
   // the same menu, in place, lists where the tab can go
   const workspaceItems = (tab: HerdrTab): RowMenuItem[] => otherWorkspaces.map((entry) => ({
