@@ -26,11 +26,14 @@ namespace Ovis
     /// </summary>
     internal static class Run
     {
-        /// <summary>Runs a program to its end with an empty stdin, so nothing it runs can wait for an answer.</summary>
-        public static Task<RunResult> Program(string program, IEnumerable<string> arguments, Action<string> onLine = null, bool keepStderr = true)
+        /// <summary>
+        /// Runs a program to its end with an empty stdin, so nothing it runs can wait for an answer, and for no longer
+        /// than the limit (two minutes unless given): past it the program and what it started are ended, herdr aside.
+        /// </summary>
+        public static Task<RunResult> Program(string program, IEnumerable<string> arguments, Action<string> onLine = null, bool keepStderr = true, int limitSeconds = 120)
         {
             var words = new[] { program }.Concat(arguments).ToArray();
-            return Task.Run(() => RunToEnd(words, onLine, keepStderr));
+            return Task.Run(() => RunToEnd(words, onLine, keepStderr, limitSeconds));
         }
 
         /// <summary>Starts a program that keeps running (herdr's server), with no window and nothing tied to this app.</summary>
@@ -48,7 +51,7 @@ namespace Ovis
             return "\"" + argument.Replace("\"", "\\\"") + "\"";
         }
 
-        private static RunResult RunToEnd(string[] words, Action<string> onLine, bool keepStderr)
+        private static RunResult RunToEnd(string[] words, Action<string> onLine, bool keepStderr, int limitSeconds)
         {
             var lines = new List<string>();
             var security = new SecurityAttributes { Length = Marshal.SizeOf(typeof(SecurityAttributes)), Inherit = 1 };
@@ -103,7 +106,12 @@ namespace Ovis
                 catch (OperationCanceledException) { }
             }) { IsBackground = true };
             reader.Start();
-            process.WaitForExit(Timeout.Infinite);
+            var timedOut = !process.WaitForExit(checked(limitSeconds * 1000));
+            if (timedOut)
+            {
+                EndTree(process);
+                process.WaitForExit(5000);
+            }
             // A background child the program started (the installer's server) can hold the pipe open for good:
             // wait for the rest of the output, but briefly.
             if (!reader.Join(2000))
@@ -119,9 +127,95 @@ namespace Ovis
                 catch (ObjectDisposedException) { } // the reader finished and closed it meanwhile
                 stream.Dispose();
             }
-            var status = process.ExitCode;
+            var status = timedOut ? TimedOut : process.ExitCode;
             process.Dispose();
-            lock (lines) return new RunResult { Status = status, Output = string.Join("\n", lines) };
+            lock (lines)
+            {
+                if (timedOut) lines.Add(words[0] + " did not finish within " + limitSeconds + " seconds and was stopped.");
+                return new RunResult { Status = status, Output = string.Join("\n", lines) };
+            }
+        }
+
+        /// <summary>The status of a run that went past its limit.</summary>
+        public const int TimedOut = -2;
+
+        /// <summary>
+        /// Ends a program that went past its limit and everything it started, newest first, except herdr: a herdr.exe
+        /// and all under it are left alone, since herdr may hold the user's agents. Each process is checked through a
+        /// handle held while it is ended: it must have started after the program and no later than the snapshot it
+        /// was found in (so a process id reused since is skipped), and its own executable must not be herdr.exe.
+        /// A process that cannot be checked is left alone.
+        /// </summary>
+        private static void EndTree(ChildProcess root)
+        {
+            long started;
+            if (!StartTime(root.Handle, out started)) { TerminateProcess(root.Handle, 1); return; }
+            long snapshotTime;
+            GetSystemTimeAsFileTime(out snapshotTime);
+            var children = new Dictionary<int, List<KeyValuePair<int, string>>>();
+            var snapshot = CreateToolhelp32Snapshot(SnapProcess, 0);
+            if (snapshot == new IntPtr(-1)) { TerminateProcess(root.Handle, 1); return; }
+            try
+            {
+                var entry = new ProcessEntry { Size = Marshal.SizeOf(typeof(ProcessEntry)) };
+                for (var more = Process32First(snapshot, ref entry); more; more = Process32Next(snapshot, ref entry))
+                {
+                    List<KeyValuePair<int, string>> list;
+                    if (!children.TryGetValue(entry.ParentProcessId, out list)) children[entry.ParentProcessId] = list = new List<KeyValuePair<int, string>>();
+                    list.Add(new KeyValuePair<int, string>(entry.ProcessId, entry.ExeFile));
+                }
+            }
+            finally
+            {
+                CloseHandle(snapshot);
+            }
+            var order = new List<int>();
+            var pending = new Stack<int>();
+            pending.Push(root.Id);
+            var seen = new HashSet<int>();
+            while (pending.Count > 0)
+            {
+                var id = pending.Pop();
+                if (!seen.Add(id)) continue;
+                order.Add(id);
+                List<KeyValuePair<int, string>> list;
+                if (!children.TryGetValue(id, out list)) continue;
+                foreach (var child in list)
+                {
+                    if (IsHerdr(child.Value)) continue;
+                    pending.Push(child.Key);
+                }
+            }
+            for (var i = order.Count - 1; i >= 1; i--)
+            {
+                var process = OpenProcess(ProcessTerminate | ProcessQueryLimited, false, order[i]);
+                if (process == IntPtr.Zero) continue;
+                try
+                {
+                    long created;
+                    if (!StartTime(process, out created) || created < started || created > snapshotTime) continue;
+                    var image = new StringBuilder(1024);
+                    var length = image.Capacity;
+                    if (!QueryFullProcessImageName(process, 0, image, ref length) || IsHerdr(Path.GetFileName(image.ToString()))) continue;
+                    TerminateProcess(process, 1);
+                }
+                finally
+                {
+                    CloseHandle(process);
+                }
+            }
+            TerminateProcess(root.Handle, 1);
+        }
+
+        private static bool IsHerdr(string executable)
+        {
+            return string.Equals(executable, "herdr.exe", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool StartTime(IntPtr process, out long creation)
+        {
+            long exit, kernel, user;
+            return GetProcessTimes(process, out creation, out exit, out kernel, out user);
         }
 
         private static RunResult Failed(string message)
@@ -132,10 +226,12 @@ namespace Ovis
         private sealed class ChildProcess : IDisposable
         {
             public IntPtr Handle;
+            public int Id;
 
-            public void WaitForExit(int milliseconds)
+            /// <summary>True once the process has exited, false when the time ran out first.</summary>
+            public bool WaitForExit(int milliseconds)
             {
-                WaitForSingleObject(Handle, unchecked((uint)milliseconds));
+                return WaitForSingleObject(Handle, unchecked((uint)milliseconds)) == 0;
             }
 
             public int ExitCode
@@ -219,7 +315,7 @@ namespace Ovis
                 if (!CreateProcess(comspec, commandLine, IntPtr.Zero, IntPtr.Zero, redirect, ExtendedStartupInfoPresent | CreateNoWindow | CreateUnicodeEnvironment,
                         IntPtr.Zero, null, ref startup, out info)) throw new Win32Exception();
                 CloseHandle(info.Thread);
-                return new ChildProcess { Handle = info.Process };
+                return new ChildProcess { Handle = info.Process, Id = info.ProcessId };
             }
             finally
             {
@@ -274,6 +370,49 @@ namespace Ovis
 
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern bool CancelIoEx(SafeFileHandle handle, IntPtr overlapped);
+
+        private const uint SnapProcess = 0x00000002; // TH32CS_SNAPPROCESS
+        private const uint ProcessTerminate = 0x0001;
+        private const uint ProcessQueryLimited = 0x1000;
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        private struct ProcessEntry
+        {
+            public int Size;
+            public int Usage;
+            public int ProcessId;
+            public IntPtr DefaultHeapId;
+            public int ModuleId;
+            public int Threads;
+            public int ParentProcessId;
+            public int PriorityClassBase;
+            public int Flags;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)] public string ExeFile;
+        }
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern IntPtr CreateToolhelp32Snapshot(uint flags, int processId);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true, EntryPoint = "Process32FirstW")]
+        private static extern bool Process32First(IntPtr snapshot, ref ProcessEntry entry);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true, EntryPoint = "Process32NextW")]
+        private static extern bool Process32Next(IntPtr snapshot, ref ProcessEntry entry);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern IntPtr OpenProcess(uint access, bool inherit, int processId);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool TerminateProcess(IntPtr process, uint exitCode);
+
+        [DllImport("kernel32.dll")]
+        private static extern void GetSystemTimeAsFileTime(out long time);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true, EntryPoint = "QueryFullProcessImageNameW")]
+        private static extern bool QueryFullProcessImageName(IntPtr process, int flags, StringBuilder name, ref int size);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool GetProcessTimes(IntPtr process, out long creation, out long exit, out long kernel, out long user);
 
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern bool CreatePipe(out IntPtr read, out IntPtr write, ref SecurityAttributes attributes, uint size);
