@@ -166,6 +166,7 @@ Every agent herdr runs shows up with its live status, terminal and alerts. The c
 | **Grok** | Linux native update log. Any Grok executable named `grok` or `grok-…` that holds the `events.jsonl` for the session Herdr reported in exactly one directory, with a newer write time than every other held session. Older open files do not hide it; ambiguous IDs, tied times, and an unreported `/resume` use Terminal until Herdr names the confirmed session. macOS and Windows use Terminal. See [Grok setup and limits](grok-chat.md). | — use Terminal |
 | **Hermes** | Native SQLite session store | — use Terminal |
 | **Antigravity (agy)** | **Experimental; macOS untested.** Native ledger, selected by the running process’s held conversation lock. Linux native-tested; Windows uses terminal text. See [Agy behavior and limits](agy-chat.md). | — use Terminal |
+| **Letta Code** | The terminal's text. Choose **Letta Code** in **New workspace**, **New tab with agent…** or **New worktree** where `letta` is installed, or run `letta` in a herdr pane's **Terminal**. | — use Terminal |
 | **Anything else** | The terminal's text | — use Terminal |
 
 GJC chat and GJC done alerts use a native extension rather than SDK session queries. From
