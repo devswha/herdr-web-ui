@@ -515,3 +515,20 @@ it.skipIf(process.platform !== "linux")("shows the attached job's conversation, 
   expect(conversation.source).toBe("claude-transcript");
   expect(conversation.turns.at(-1)?.parts[0]).toMatchObject({ text: `Answer ${shown}` });
 });
+
+it.skipIf(process.platform !== "linux")("keeps the terminal of a reused pane attached to a shell-command job, which has no session (#1645)", async () => {
+  const job = "5e6f7a8b";
+  mkdirSync(join(root, ".claude", "jobs", job), { recursive: true });
+  writeFileSync(join(root, ".claude", "jobs", job, "state.json"), JSON.stringify({ command: "sleep 100", state: "running" }));
+  // the Claude that ran here before reported its session through the hook, and herdr still has it
+  const attach = await attachPane(job, async (paneId) => {
+    await herdrRpc("pane.report_agent", { pane_id: paneId, source: "manual", agent: "claude", state: "idle" });
+    await herdrRpc("pane.report_agent_session", {
+      pane_id: paneId, source: "herdr:claude", agent: "claude", seq: 1, agent_session_id: FIRST,
+    });
+  });
+  const info = await herdrRpc<{ agent: { agent_session?: { value?: unknown } } }>("agent.get", { target: attach.pane });
+  expect(info.agent.agent_session?.value).toBe(FIRST);
+  // the job shows no conversation: the earlier Claude's would be another session's
+  expect((await read(attach.pane)).source).toBe("scrollback");
+});
