@@ -976,8 +976,8 @@ describe("tab to another workspace", () => {
     expect(((await missing.json()) as ApiError).error.code).toBe("tab_not_found");
   });
   it("moves a one-pane tab with its label and process, and refuses a split tab", async () => {
-    const source = await workspaceCreate({ cwd: tmpdir(), label: "herdr-web-ui-test-tab-out" });
-    const target = await workspaceCreate({ cwd: tmpdir(), label: "herdr-web-ui-test-tab-in" });
+    const source = await workspaceCreate({ cwd: tmpdir(), label: "ovis-test-tab-out" });
+    const target = await workspaceCreate({ cwd: tmpdir(), label: "ovis-test-tab-in" });
     const open = [source.workspace.workspace_id, target.workspace.workspace_id];
     try {
       const named = await tabCreate({ workspaceId: source.workspace.workspace_id, label: "build" });
@@ -1000,8 +1000,8 @@ describe("tab to another workspace", () => {
     } finally { for (const id of open) await workspaceClose(id).catch(() => {}); }
   });
   it("leaves the name herdr gave a tab by its place behind, though the tab's number differs", async () => {
-    const source = await workspaceCreate({ cwd: tmpdir(), label: "herdr-web-ui-test-tab-place-out" });
-    const target = await workspaceCreate({ cwd: tmpdir(), label: "herdr-web-ui-test-tab-place-in" });
+    const source = await workspaceCreate({ cwd: tmpdir(), label: "ovis-test-tab-place-out" });
+    const target = await workspaceCreate({ cwd: tmpdir(), label: "ovis-test-tab-place-in" });
     const open = [source.workspace.workspace_id, target.workspace.workspace_id];
     try {
       await tabCreate({ workspaceId: source.workspace.workspace_id });

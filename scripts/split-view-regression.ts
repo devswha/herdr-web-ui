@@ -718,7 +718,7 @@ export async function checkSplitView(browser: Browser, origin: string): Promise<
       await splitRight(page, right);
       const shows = (side: string, pane: string) => page.waitForFunction(([which, id]) =>
         document.querySelector(`.pane-slot[data-side="${which}"] [data-layout-pane="${id}"]:not([inert])`) !== null, [side, pane] as const);
-      const moveOut = async (side: string, to = "herdr-web-ui-test-split-move-target"): Promise<string> => {
+      const moveOut = async (side: string, to = "ovis-test-split-move-target"): Promise<string> => {
         // a right press on the half's open tab opens its menu without making the half the active one
         await half(page, side).locator('.tab-strip [role=tab][aria-selected="true"]').click({ button: "right" });
         await page.getByRole("menuitem", { name: "Move to workspace…", exact: true }).click();
@@ -755,7 +755,7 @@ export async function checkSplitView(browser: Browser, origin: string): Promise<
         await page.route("**/tab/move-to-workspace", async (route) => { const response = await route.fetch(); await held; await route.fulfill({ response }); });
         // the page's roster without the pane: herdr moved it
         const dropped = page.waitForResponse(async (response) => new URL(response.url()).pathname === "/api/machines" && !(await response.text()).includes(`"${pane}"`));
-        const moving = moveOut(side, "herdr-web-ui-test-split-move-back");
+        const moving = moveOut(side, "ovis-test-split-move-back");
         await dropped;
         await report(probe, "working");
         await page.locator(`.pane-item:has(.pane-select[title^="${probe} —"]) [data-status="working"]`).first().waitFor({ state: "attached" });
