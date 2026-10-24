@@ -19,6 +19,7 @@ import {
   type NotificationState,
 } from "./notifications.ts";
 import { ensurePushSubscription, pushSupported, removePushSubscription } from "./push.ts";
+import { hasNativePlugin, PUSH_PLUGIN } from "./nativeApp.ts";
 import type { NotificationTarget } from "./notificationTarget.ts";
 import { dropletAllows, endedTurn, seedStatuses, showDroplet, trackTurn, type DropletKind } from "./droplet.ts";
 import { canPlayAlertSound, playAlertSound, unlockAlertSound, type AlertSoundKind } from "./alertSound.ts";
@@ -51,9 +52,11 @@ export function useAlertPrefs({ settings }: { settings: Settings }) {
 /** The browser's notification permission and whether this device has a push subscription. */
 export function useNotificationState() {
   const [notifications, setNotifications] = useState<NotificationState>(() => notificationState());
-  // the phone app's permission is read from the app (lib/notifications.ts), and any permission can
-  // change in settings while the page is away
+  // in the phone app the permission is the app's (lib/notifications.ts): read from the app at load,
+  // and again whenever the page comes back, as it may have been changed in the phone's Settings
+  // meanwhile. A browser page keeps the permission it read at load, as before.
   useEffect(() => {
+    if (!hasNativePlugin(PUSH_PLUGIN)) return;
     let current = true;
     const read = () => {
       refreshNotificationState().then((state) => { if (current) setNotifications(state); }, (err) => console.warn("could not read the notification permission", err));

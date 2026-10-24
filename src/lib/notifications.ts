@@ -35,7 +35,7 @@ async function askApp(method: "checkPermissions" | "requestPermissions"): Promis
   return appPermission;
 }
 
-/** The permission read anew: the app's changes in the phone's Settings while the page is away, and so can a browser's. */
+/** The app's permission read anew from its push plugin, as the phone's Settings can change it while the page is away; elsewhere notificationState(). */
 export async function refreshNotificationState(): Promise<NotificationState> {
   return hasNativePlugin(PUSH_PLUGIN) ? askApp("checkPermissions") : notificationState();
 }
