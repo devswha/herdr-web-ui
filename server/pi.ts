@@ -1,5 +1,6 @@
 import { constants, closeSync, fstatSync, lstatSync, openSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { agentGet, paneProcessInfo } from "./herdr/client.ts";
 import { runsAgent } from "./gjc-runtime.ts";
@@ -97,10 +98,13 @@ function processArgv(pid: number): readonly string[] | null {
   catch { return null; }
 }
 
-type PiStoreResolution = { kind: "default" } | { kind: "store"; path: string } | { kind: "reject" };
+type PiStoreResolution = { kind: "default" } | { kind: "store"; path: string; agentDir: string | null } | { kind: "reject" };
 type VerifiedPiProcess = Omit<PiProcess, "argv" | "pid"> & { pid: number; argv: readonly string[] };
 
-/** Resolve only stores the pane's Pi process identifies; an unseen CLI override is unsafe. */
+/**
+ * Resolve only stores the pane's Pi process identifies; an unseen CLI override is unsafe. The
+ * agent directory comes with it: pi reads its model catalogs from there, not from the bridge's.
+ */
 function piSessionDirForProcess(
   argv: readonly string[],
   environ: readonly string[] | null,
@@ -114,22 +118,34 @@ function piSessionDirForProcess(
   const processHome = value("HOME") ?? value("USERPROFILE") ?? home;
   const sessionEntry = value("PI_CODING_AGENT_SESSION_DIR");
   const agentEntry = value("PI_CODING_AGENT_DIR");
-  const raw = sessionEntry || (agentEntry ? join(agentEntry, "sessions") : join(processHome, ".pi", "agent", "sessions"));
-  const expanded = raw === "~" ? processHome : raw.startsWith("~/") ? join(processHome, raw.slice(2)) : raw;
-  if (!isAbsolute(expanded) && !cwd) return { kind: "reject" };
-  return { kind: "store", path: resolve(isAbsolute(expanded) ? expanded : join(cwd, expanded)) };
+  // pi's own normalizer: `~` against the process's home, then a file: URL decoded to its path
+  const absolute = (raw: string): string | null => {
+    let expanded = raw === "~" ? processHome : raw.startsWith("~/") ? join(processHome, raw.slice(2)) : raw;
+    if (/^file:\/\//.test(expanded)) {
+      try { expanded = fileURLToPath(expanded); } catch { return null; }
+    }
+    return isAbsolute(expanded) ? resolve(expanded) : cwd ? resolve(join(cwd, expanded)) : null;
+  };
+  const agentDir = absolute(agentEntry || join(processHome, ".pi", "agent"));
+  const path = sessionEntry ? absolute(sessionEntry) : agentDir === null ? null : join(agentDir, "sessions");
+  if (path === null) return { kind: "reject" };
+  return { kind: "store", path, agentDir };
 }
 
 /**
  * pi's transcript for a pane, or the session it has not written yet. The agent report names
  * the active session; Linux process metadata ties a custom store to the Pi process in this pane.
  * Where the OS cannot expose that process environment, only the bridge's default store is used.
+ *
+ * A written session comes with the agent directory of the same process, where pi keeps the
+ * catalogs its context window is read from (`piContextWindow`): the bridge's own when no Pi
+ * process was identified, and null when the pane's Pi processes name different ones.
  */
 export async function piTranscriptPath(
   paneId: string,
   sessionDir = defaultPiSessionDir(),
   options: PiTranscriptOptions = {},
-): Promise<{ path: string } | { unwritten: { id: string; path: string } } | null> {
+): Promise<{ path: string; agentDir: string | null } | { unwritten: { id: string; path: string } } | null> {
   const agent = options.agent === undefined ? await agentGet(paneId).catch(() => null) : options.agent;
   const session = agent?.agent_session;
   if (agent?.agent !== "pi" || session?.agent !== "pi" || session.source !== "herdr:pi" || session.kind !== "path" || typeof session.value !== "string") return null;
@@ -150,10 +166,17 @@ export async function piTranscriptPath(
   }
 
   const processStores = new Set<string>();
+  /** each process's agent directory, by its canonical path */
+  const agentDirs = new Map<string | null, string | null>();
   for (const process of piProcesses) {
     const resolved = piSessionDirForProcess(process.argv ?? [], environOf(process.pid!), home, process.cwd ?? "");
     if (resolved.kind === "reject") return null;
     processStores.add(resolved.kind === "store" ? resolved.path : sessionDir);
+    const agentDir = resolved.kind === "store" ? resolved.agentDir : piAgentDir();
+    // one directory named through a link is still one directory
+    let canonical = agentDir;
+    if (agentDir !== null) try { canonical = realpathSync(agentDir); } catch { /* absent: no catalog to read */ }
+    if (!agentDirs.has(canonical)) agentDirs.set(canonical, agentDir);
   }
   const canonicalProcessStores = new Set<string>();
   for (const store of processStores) {
@@ -172,7 +195,8 @@ export async function piTranscriptPath(
   const matches = [...canonicalStores].filter((store) => piTranscriptInStore(session.value, store) !== null || unwrittenSession(session.value, store) !== null);
   if (matches.length !== 1) return null;
   const path = piTranscriptInStore(session.value, matches[0]!);
-  if (path !== null) return { path };
+  const agentDir = piProcesses.length === 0 ? piAgentDir() : agentDirs.size === 1 ? [...agentDirs.values()][0] ?? null : null;
+  if (path !== null) return { path, agentDir };
   const unwritten = unwrittenSession(session.value, matches[0]!);
   return unwritten === null ? null : { unwritten };
 }
