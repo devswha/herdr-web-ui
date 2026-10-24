@@ -194,11 +194,6 @@ export function lastChatSubmitted(paneId: string): string | null {
   return chatSent.get(paneId)?.text ?? null;
 }
 
-/** The last chat send remains owned when Claude puts a cancelled send back in its input box. */
-export async function chatOwnedInput(paneId: string): Promise<string | null> {
-  return lastChatSubmitted(paneId);
-}
-
 /** Native observers must name the send they correlated; a timestamp or idle transition alone is not an event. */
 export function noteCommandEvidence(paneId: string, id: string, evidence: NonNullable<Parameters<typeof commandOutcome>[2]["evidence"]>): void {
   const commands = chatSent.get(paneId)?.commands ?? [];
@@ -534,7 +529,8 @@ const QUEUE_ROLLOUT_MS = 15_000;
  * viewportShowsLive verifies they show that screen.
  */
 async function restoredOnLiveScreen(paneId: string, viewport: string): Promise<string | null> {
-  const sent = await chatOwnedInput(paneId);
+  // the last chat send remains owned when Claude puts a cancelled send back in its input box
+  const sent = lastChatSubmitted(paneId);
   const plain = (text: string): string => text.replace(ANSI_RE, "").replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g, "");
   if (claudeRestoredDraft(plain(viewport), viewport, sent) === null) return null;
   const detection = async (): Promise<string> => (await paneRead({ paneId, source: "detection", format: "text", timeoutMs: SUGGESTION_READ_MS })).text;
