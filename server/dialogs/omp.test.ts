@@ -31,6 +31,15 @@ describe("omp Ask under omp's status row (#1644)", () => {
     expect(card(ask("multi-120"))).toMatchObject({ question: "Which synthetic targets should be checked?", multi_select: true });
   });
 
+  it("reads a multi-select question whose hint a narrow pane clips inside the cancel label", () => {
+    // at 60 columns omp 18.12.6 ends the multi-select hint `⎋ cance…`
+    const shown = ask("multi-60");
+    expect(shown).toContain("␣ toggle · ⏎ next · ↑/↓ move · ⇥/←/→ question · ⎋ cance…");
+    expect(card(shown)).toMatchObject({ question: "Which synthetic targets should be checked?", multi_select: true,
+      options: [{ label: "Desktop" }, { label: "Phone" }, { label: "Tablet" }] });
+    expect(card(shown)).toEqual(card(shown.replace(STATUS_ROW_RE, "")));
+  });
+
   it("shows no card for an old Ask panel with another, empty box between it and the status row", () => {
     // an answered question can leave its panel on screen while omp draws another box under it
     const box = "\n\u256d\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256e\n\u2502        \u2502\n\u2570\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256f";
