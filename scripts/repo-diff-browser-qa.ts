@@ -1261,7 +1261,7 @@ try {
   // every new string once in Korean, on a phone
   {
     const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true, colorScheme: "dark" });
-    await context.addInitScript(() => localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "ko", theme: "dark" })));
+    await context.addInitScript(() => localStorage.setItem("ovis:settings", JSON.stringify({ language: "ko", theme: "dark" })));
     const page = await context.newPage();
     page.setDefaultTimeout(15_000);
     const errors: string[] = [];
@@ -1275,7 +1275,7 @@ try {
   // a PC whose branch list is still on its way when the reader switches PC: its late answer is dropped
   {
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-    await context.addInitScript(() => localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", theme: "dark" })));
+    await context.addInitScript(() => localStorage.setItem("ovis:settings", JSON.stringify({ language: "en", theme: "dark" })));
     const page = await context.newPage();
     page.setDefaultTimeout(15_000);
     await page.goto(origin);
@@ -1307,7 +1307,7 @@ try {
   for (const width of [1440, 390] as const) {
     const phone = width === 390;
     const context: BrowserContext = await browser.newContext({ viewport: { width, height: phone ? 844 : 900 }, deviceScaleFactor: phone ? 3 : 1, isMobile: phone, hasTouch: phone });
-    await context.addInitScript(() => localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", theme: "dark" })));
+    await context.addInitScript(() => localStorage.setItem("ovis:settings", JSON.stringify({ language: "en", theme: "dark" })));
     const page: Page = await context.newPage();
     page.setDefaultTimeout(15_000);
     const errors: string[] = [];

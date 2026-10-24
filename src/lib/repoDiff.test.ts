@@ -109,10 +109,10 @@ describe("repository diff history entry", () => {
     expect(diffTargetFromState(diffTargetState(null, branch))).toEqual(branch);
     // an entry from before the branch scope carries no identity: read as none
     const { comparison: _comparison, ...older } = target;
-    expect(diffTargetFromState({ "herdr-web-ui:repo-diff": older })).toEqual(target);
-    expect(diffTargetFromState({ "herdr-web-ui:repo-diff": { ...branch, comparison: "pinned" } })).toBeNull();
-    expect(diffTargetFromState({ "herdr-web-ui:repo-diff": { ...branch, comparison: { ...identity, merge_base_oid: 7 } } })).toBeNull();
-    expect(diffTargetFromState({ "herdr-web-ui:repo-diff": { ...branch, comparison: { head_oid: identity.head_oid } } })).toBeNull();
+    expect(diffTargetFromState({ "ovis:repo-diff": older })).toEqual(target);
+    expect(diffTargetFromState({ "ovis:repo-diff": { ...branch, comparison: "pinned" } })).toBeNull();
+    expect(diffTargetFromState({ "ovis:repo-diff": { ...branch, comparison: { ...identity, merge_base_oid: 7 } } })).toBeNull();
+    expect(diffTargetFromState({ "ovis:repo-diff": { ...branch, comparison: { head_oid: identity.head_oid } } })).toBeNull();
   });
 
   it("releases only the diff when another viewer takes its entry", () => {
