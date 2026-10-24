@@ -232,6 +232,13 @@ In Xcode, pick a simulator and press Run. For a physical iPhone:
 2. Connect the iPhone, or pair it over Wi-Fi under Window → Devices and Simulators. Turn on
    Developer Mode on the phone when it asks, then pick it as the run destination and press Run.
 
+The app and its Notification Service Extension share one version: Xcode and App Store Connect flag
+an extension whose version or build number differs from its app's. `MARKETING_VERSION` (the version
+people see) and `CURRENT_PROJECT_VERSION` (the build number) are set once, in the build settings
+of the App project rather than of a target, and both targets take them from there. Raise
+`CURRENT_PROJECT_VERSION` for every upload. Version and Build in a target's General tab set
+them on that target alone, so change them under the project's Build Settings instead.
+
 What was checked on 2026-10-19 (iPhone 18 Pro Simulator, iOS 27.0, a Debug build), against a
 server on an isolated herdr session:
 
