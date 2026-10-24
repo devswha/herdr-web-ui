@@ -371,12 +371,8 @@ export async function repoDiffFile(cwd: string, params: URLSearchParams, options
   const repository = await repositoryOf(context, cwd);
   const comparison = await comparisonOf(context, repository, params, "file");
   const pathspec = oldPath !== null && oldPath !== path ? [oldPath, path] : [path];
-  const listing = await changedFiles(context, repository.root, comparison, pathspec);
-  const file = listing.files.find((candidate) => candidate.path === path);
-  if (file === undefined) throw new RepoDiffError("not_found", "nothing changed at that path in this comparison", 404);
-  if (oldPath !== null && file.old_path !== oldPath) throw new RepoDiffError("invalid_path", "old_path no longer belongs to this file's change; refresh the list", 400);
 
-  const answer = (patch: string | null, unavailable: RepoDiffFilePatch["unavailable"], described: RepoDiffFile = file): RepoDiffFilePatch => ({
+  const answer = (patch: string | null, unavailable: RepoDiffFilePatch["unavailable"], described: RepoDiffFile): RepoDiffFilePatch => ({
     repository,
     scope: comparison.scope,
     base: comparison.base,
@@ -390,14 +386,18 @@ export async function repoDiffFile(cwd: string, params: URLSearchParams, options
   });
 
   const read = async (): Promise<RepoDiffFilePatch> => {
-    if (file.status === "unmerged") return answer(null, "unmerged");
-    if (file.binary === true) return answer(null, "binary");
+    const listing = await changedFiles(context, repository.root, comparison, pathspec);
+    const file = listing.files.find((candidate) => candidate.path === path);
+    if (file === undefined) throw new RepoDiffError("not_found", "nothing changed at that path in this comparison", 404);
+    if (oldPath !== null && file.old_path !== oldPath) throw new RepoDiffError("invalid_path", "old_path no longer belongs to this file's change; refresh the list", 400);
+    if (file.status === "unmerged") return answer(null, "unmerged", file);
+    if (file.binary === true) return answer(null, "binary", file);
 
     let run: GitRun;
     if (file.status === "untracked") {
       const kind = untrackedKind(join(repository.root, path), context.maxPatchBytes);
       if (kind === "binary") return answer(null, "binary", { ...file, binary: true });
-      if (kind !== "text") return answer(null, kind);
+      if (kind !== "text") return answer(null, kind, file);
       // an untracked file has no index entry to compare with: it is shown as a new file, whole
       run = await runGit(context, repository.root, ["diff", "--no-index", ...DIFF_FLAGS, `-U${REPO_DIFF_CONTEXT_LINES}`, "--", "/dev/null", path], context.maxPatchBytes);
       if (!run.overflow && run.code !== 1 && run.code !== 0) throw new RepoDiffError("git_failed", "git could not read that file", 500);
@@ -405,20 +405,29 @@ export async function repoDiffFile(cwd: string, params: URLSearchParams, options
       run = await runGit(context, repository.root, ["diff", ...DIFF_FLAGS, `-U${REPO_DIFF_CONTEXT_LINES}`, ...comparison.args, "--", ...pathspec], context.maxPatchBytes);
       if (!run.overflow && run.code !== 0) throw new RepoDiffError("git_failed", "git could not compare that file", 500);
     }
-    if (run.overflow) return answer(null, "too_large");
+    if (run.overflow) return answer(null, "too_large", file);
     // the file changed between the listing and this read, or git printed a form no patch reader takes
     if (run.stdout === "") throw new RepoDiffError("not_found", "nothing changed at that path in this comparison", 404);
-    if (!run.stdout.startsWith("diff --git ")) return answer(null, "unsupported");
+    if (!run.stdout.startsWith("diff --git ")) return answer(null, "unsupported", file);
     return answer(run.stdout, null, file.status === "untracked" ? { ...file, binary: false } : file);
   };
-  const result = await read();
   // a branch patch is the pinned comparison's or none: HEAD is read again once the working tree has been,
-  // so a checkout that landed during the read is refused rather than answered under the old identity
+  // whatever the read answered, so a checkout that landed during it (one that changed the file, or one
+  // that left nothing changed there) is refused as a moved HEAD rather than answered under the old identity
   const pinned = comparison.comparison;
-  if (pinned !== null) {
+  const confirmPinned = async (): Promise<void> => {
+    if (pinned === null) return;
     const after = await repositoryOf(context, cwd);
     if (after.root !== pinned.repository_root || after.head !== pinned.head_oid) throw new RepoDiffError("comparison_changed", "the repository or its HEAD is no longer the one this comparison was made on; refresh the list", 409);
+  };
+  let result: RepoDiffFilePatch;
+  try {
+    result = await read();
+  } catch (error) {
+    await confirmPinned();
+    throw error;
   }
+  await confirmPinned();
   return result;
 }
 

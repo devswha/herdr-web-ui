@@ -477,14 +477,23 @@ describe("a branch against a base", () => {
     writeFileSync(join(racy, "a.txt"), "feature-content\n");
     git(racy, "commit", "-q", "-a", "-m", "feature");
     const list = await repoDiffFiles(racy, query({ scope: "branch", base: "main" }));
-    // the stand-in checks out another branch once, right before the patch itself is read
-    const marker = join(scratch, "race-checked-out");
-    const racer = join(scratch, "racing-git");
-    writeFileSync(racer, `#!/bin/sh\ncase "$*" in *" diff "*-U3*) [ -f '${marker}' ] || { touch '${marker}'; git -C '${racy}' checkout -q other; } ;; esac\nexec git "$@"\n`);
-    chmodSync(racer, 0o755);
-    await expect(repoDiffFile(racy, pinned(list, { path: "a.txt" }), { git: racer })).rejects.toMatchObject({ code: "comparison_changed", status: 409 });
-    expect(existsSync(marker)).toBeTrue();
-    expect(git(racy, "rev-parse", "HEAD").trim()).not.toBe(list.comparison!.head_oid);
+    // the stand-in checks out `target` once, right before the git call whose arguments match `when`:
+    // another branch before the patch (other content), the base before the patch (nothing changed
+    // there any more) and the base before the patch's own listing (the file is no longer listed)
+    const cases = [["patch", "*\" diff \"*-U3*", "other"], ["emptied patch", "*\" diff \"*-U3*", "main"], ["emptied listing", "*--name-status*", "main"]] as const;
+    for (const [label, when, target] of cases) {
+      const marker = join(scratch, `race-${target}-${label.length}`);
+      const racer = join(scratch, `racing-git-${label.length}`);
+      writeFileSync(racer, `#!/bin/sh\ncase "$*" in ${when}) [ -f '${marker}' ] || { touch '${marker}'; git -C '${racy}' checkout -q ${target}; } ;; esac\nexec git "$@"\n`);
+      chmodSync(racer, 0o755);
+      try {
+        await expect(repoDiffFile(racy, pinned(list, { path: "a.txt" }), { git: racer })).rejects.toMatchObject({ code: "comparison_changed", status: 409 });
+        expect(existsSync(marker)).toBeTrue();
+        expect(git(racy, "rev-parse", "HEAD").trim()).not.toBe(list.comparison!.head_oid);
+      } finally {
+        git(racy, "checkout", "-q", "feature");
+      }
+    }
   });
 
   it("never fetches, checks out or writes while comparing a branch", async () => {
