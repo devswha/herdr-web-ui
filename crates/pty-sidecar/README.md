@@ -26,19 +26,19 @@ cargo build --release --manifest-path crates/pty-sidecar/Cargo.toml
 OVIS_PTY_SIDECAR=rust bun run server
 ```
 
-`OVIS_PTY_SIDECAR_BIN` points at a binary elsewhere; the default is
-`crates/pty-sidecar/target/release/ovis-pty-sidecar`, next to the server's own files. For the app
-installed as a herdr plugin, add both to the `env` file in the directory that
-`herdr plugin config-dir devswha.ovis` prints, then restart the app:
+Each release ships this host, and the plugin's build, every update installed from the app and
+`install.sh` put the binary for the PC in `bin/ovis-pty-sidecar` beside the server, with a record of
+its SHA-256 (`scripts/pty-sidecar.ts`). The server takes that binary while its record vouches for it,
+else `crates/pty-sidecar/target/release/ovis-pty-sidecar`. So for the app installed as a herdr
+plugin, turning it on takes one line in the `env` file in the directory that
+`herdr plugin config-dir devswha.ovis` prints, then a restart of the app:
 
 ```
 OVIS_PTY_SIDECAR=rust
-OVIS_PTY_SIDECAR_BIN=~/ovis-pty-sidecar
 ```
 
-Give the binary a path of its own (a leading `~/` is expanded, as that file is not a shell): an
-update installed from the app runs from `~/.config/ovis/updates/`, where the default path does not
-exist. Name the binary itself, or a wrapper that `exec`s it, so that the server sees how the host
+`OVIS_PTY_SIDECAR_BIN` points at a binary elsewhere (a leading `~/` is expanded, as that file is not a
+shell). Name the binary itself, or a wrapper that `exec`s it, so that the server sees how the host
 ended.
 
 ## When it cannot run

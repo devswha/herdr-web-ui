@@ -1,8 +1,9 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, spyOn } from "bun:test";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { probeRustHost, resetPtyHostForTests, RUST_SIDECAR_BUILD, rustSidecar, rustSidecarPath } from "./host.ts";
+import { defaultRustSidecar, installedHostVouched, probeRustHost, resetPtyHostForTests, RUST_SIDECAR_BUILD, rustSidecar, rustSidecarPath } from "./host.ts";
 import { PtySession, type PtySessionOptions } from "./session.ts";
 import { announcePtyHost } from "./sidecar.ts";
 
@@ -28,9 +29,33 @@ describe("rustSidecar", () => {
     } finally { said.mockRestore(); }
   });
 
-  it.skipIf(!existsSync(RUST_SIDECAR_BUILD))("runs the Rust build, or OVIS_PTY_SIDECAR_BIN, when asked", () => {
-    expect(rustSidecar({ OVIS_PTY_SIDECAR: "rust" })).toBe(RUST_SIDECAR_BUILD);
-    expect(rustSidecar({ OVIS_PTY_SIDECAR: "rust", OVIS_PTY_SIDECAR_BIN: RUST_SIDECAR_BUILD })).toBe(RUST_SIDECAR_BUILD);
+  it("prefers the installed host to a local build only while its record vouches for it", () => {
+    const dir = mkdtempSync(join(tmpdir(), "ovis-pty-installed-"));
+    try {
+      mkdirSync(join(dir, "bin"));
+      writeFileSync(join(dir, "package.json"), JSON.stringify({ version: "9.9.9" }));
+      const installed = join(dir, "bin", "ovis-pty-sidecar");
+      const record = (fields: Record<string, unknown>) => writeFileSync(`${installed}.json`, JSON.stringify(fields));
+      expect(defaultRustSidecar(installed)).toBe(RUST_SIDECAR_BUILD);
+      writeFileSync(installed, "host");
+      const digest = createHash("sha256").update("host").digest("hex");
+      expect(defaultRustSidecar(installed)).toBe(RUST_SIDECAR_BUILD);
+      record({ sha256: digest, version: "0.0.1" });
+      expect(defaultRustSidecar(installed)).toBe(RUST_SIDECAR_BUILD);
+      record({ sha256: "0".repeat(64), version: "9.9.9" });
+      writeFileSync(installed, "host\n");
+      expect(defaultRustSidecar(installed)).toBe(RUST_SIDECAR_BUILD);
+      writeFileSync(installed, "host");
+      record({ sha256: digest, version: "9.9.9" });
+      writeFileSync(installed, "host");
+      expect(installedHostVouched(installed)).toBe(true);
+      expect(defaultRustSidecar(installed)).toBe(installed);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it.skipIf(!existsSync(defaultRustSidecar()))("runs the installed host or the Rust build, or OVIS_PTY_SIDECAR_BIN, when asked", () => {
+    expect(rustSidecar({ OVIS_PTY_SIDECAR: "rust" })).toBe(defaultRustSidecar());
+    expect(rustSidecar({ OVIS_PTY_SIDECAR: "rust", OVIS_PTY_SIDECAR_BIN: defaultRustSidecar() })).toBe(defaultRustSidecar());
   });
 });
 
@@ -143,7 +168,7 @@ describe("rustSidecar policy", () => {
     expect(path("~/x")).toBe("/home/fixture/x");
     expect(path("~user/x")).toBe("~user/x");
     expect(path("/absolute/x")).toBe("/absolute/x");
-    expect(rustSidecarPath({})).toBe(RUST_SIDECAR_BUILD);
+    expect(rustSidecarPath({})).toBe(defaultRustSidecar());
   });
 
   it.skipIf(process.platform === "win32")("warns once for each unknown value and keeps Node defaults silent", () => {
