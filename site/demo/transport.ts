@@ -894,15 +894,15 @@ const DEMO_DIFF: { file: RepoDiffFile; patch: string | null }[] = [
   ].join("\n") },
 ];
 
-/** The demo repository's HEAD, and the branches a base picker is offered (GET /api/workspace/diff/refs). */
+/**
+ * The demo repository's HEAD, and the branches a base picker is offered (GET /api/workspace/diff/refs):
+ * only the bases its branch comparison below answers, so no offered branch is refused on Compare.
+ */
 const DEMO_HEAD = "4f2a9c1d7e3b5a8c6d0e1f2a3b4c5d6e7f8a9b0c";
 const DEMO_MAIN = "7a3e5c19b2d84f06a1c3e5b7d9f1a3c5e7b9d1f3";
 const DEMO_REFS: RepoDiffRefs["refs"] = [
-  { name: "refs/heads/feat/idempotent-payments", oid: DEMO_HEAD },
   { name: "refs/heads/main", oid: DEMO_MAIN },
-  { name: "refs/remotes/origin/feat/idempotent-payments", oid: "9c1d7e3b5a8c6d0e1f2a3b4c5d6e7f8a9b0c4f2a" },
   { name: "refs/remotes/origin/main", oid: DEMO_MAIN },
-  { name: "refs/remotes/origin/release/2026.10", oid: "b2d84f06a1c3e5b7d9f1a3c5e7b9d1f37a3e5c19" },
 ];
 
 /**

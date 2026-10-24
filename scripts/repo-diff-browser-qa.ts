@@ -1426,7 +1426,8 @@ try {
     await page.getByRole("button", { name: EN.branch, exact: true }).click();
     await page.getByRole("button", { name: EN.choose, exact: true }).click();
     const demoRefs = await refRows(page);
-    assert.deepEqual(demoRefs, ["feat/idempotent-payments", "main", "origin/feat/idempotent-payments", "origin/main", "origin/release/2026.10"], `the demo's branches: ${JSON.stringify(demoRefs)}`);
+    // only bases the demo can compare are offered: none of them answers "No commit by that name"
+    assert.deepEqual(demoRefs, ["main", "origin/main"], `the demo's branches: ${JSON.stringify(demoRefs)}`);
     await page.locator(".repo-changes-refs [role='option']").filter({ has: page.locator(".menu-item-main", { hasText: /^main$/ }) }).click();
     await page.getByRole("button", { name: EN.compare, exact: true }).click();
     const demoBranch = await changeRows(page, "branch");
