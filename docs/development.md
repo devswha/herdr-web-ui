@@ -753,7 +753,8 @@ downloads on self-hosted jobs, but dependency installation, checkout and artifac
 do; measure setup, test execution and retries separately when comparing speed. Setup, routing and the security model are in
 [scripts/self-hosted-runner/README.md](../scripts/self-hosted-runner/README.md).
 
-`scripts/ci-tests.ts` discovers all `.test.ts` files under src/shared/server/scripts.
+`scripts/ci-tests.ts` discovers all `.test.ts` files under
+src/shared/server/scripts/telemetry/push-relay/integrations.
 Files named `*.contract.test.ts`, tests under `server/herdr/` and `server/pty/`, and
 `server/updater.test.ts` (which includes real bridge restart/rollback cases) belong
 to integration; everything else belongs to unit. Name new live-server tests

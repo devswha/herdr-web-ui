@@ -174,5 +174,5 @@ domain without a code change.
 `bun test ./push-relay` from the repository root. The tests sign and encrypt pushes with
 `web-push`, as `server/push.ts` does, and run the Worker over a real SQLite table built from
 `schema.sql`, a fake registration limiter, a fake APNs, and a fake FCM with Google's token
-endpoint (`test-push.ts` above is the check against the real APNs). They run in CI in the Push relay workflow
-(`.github/workflows/push-relay.yml`); the typecheck runs in Fast checks.
+endpoint (`test-push.ts` above is the check against the real APNs and FCM). In CI they run with
+the unit tests in Fast checks (`scripts/ci-tests.ts`), as does the typecheck.
