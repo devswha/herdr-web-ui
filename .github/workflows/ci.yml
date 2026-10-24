@@ -127,7 +127,7 @@ jobs:
           exit 0
       - run: bun install --frozen-lockfile
         if: needs.changes.outputs.draft != 'true'
-      - run: bun test ./server/claude-store.test.ts ./server/process-start.test.ts
+      - run: bun test ./server/claude-store.test.ts ./server/process-start.test.ts ./server/grok.test.ts
         if: needs.changes.outputs.draft != 'true'
   fast:
     name: Fast checks
