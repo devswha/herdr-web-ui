@@ -42,7 +42,7 @@ import { herdrRpc, paneRead, sessionSnapshot, type ProcessInfo } from "./herdr/c
 import { resolveAgent } from "./pane-context.ts";
 import { codexHistorySegments, createCodexTranscriptParser, codexOutputText, codexTranscriptPath, defaultCodexHome, forgetAllCodexState, forgetCodexStateFor, paneCodexHome, parseCodexTranscript, readRange } from "./codex.ts";
 import { CODEX_IMAGE_REF, codexTranscriptImage } from "./codex-images.ts";
-import { AmbiguousClaudeStore, attachedJob, claudeJobSession, claudeProcessSession, claudeTranscriptFile, defaultClaudeConfigDir, forgetClaudeSessionFile, forgetClaudeSessions, isClaudeProcess, processClaudeConfigDir } from "./claude-store.ts";
+import { AmbiguousClaudeStore, claudeAttachSession, claudeProcessSession, claudeTranscriptFile, defaultClaudeConfigDir, forgetClaudeSessionFile, forgetClaudeSessions, isClaudeProcess, processClaudeConfigDir } from "./claude-store.ts";
 import { forgetGjcPane, forgetGjcState, gjcPidUnderShell, gjcTranscriptForPane, isGjcProcess, storeRelative } from "./gjc-runtime.ts";
 import { isOmoProcess, omoProcessIdentity, omoSessionForPane, processEnviron } from "./omo.ts";
 import { processStartedAt } from "./process-start.ts";
@@ -826,8 +826,9 @@ export async function claudePanePid(pane: HerdrPane): Promise<number | null> {
 /**
  * Claude's transcript: Herdr's hook, or a unique live Claude's native PID record, in the config dir
  * of the pane's Claude process (a launcher can give each environment its own CLAUDE_CONFIG_DIR). A
- * `claude attach <job>` keeps no PID record: only the background job's state names the session it
- * shows, never the hook's. `onProcess` learns that process, and whether it is such an attach client.
+ * `claude attach <id|name>` keeps no PID record: only the state of the job it opened, found as Claude
+ * finds it, names the session it shows, never the hook's. `onProcess` learns that process, and
+ * whether it is such an attach client.
  */
 async function claudeTranscriptPath(paneId: string, cwds: readonly (string | null | undefined)[], onProcess?: (pid: number, attach: boolean) => void): Promise<string> {
   const info = await herdrRpc<{ agent: { agent_session?: { value?: unknown } } }>("agent.get", { target: paneId });
@@ -835,8 +836,6 @@ async function claudeTranscriptPath(paneId: string, cwds: readonly (string | nul
   const home = process.env["HOME"] ?? "";
   const processes = await claudeProcesses(paneId);
   const only = processes.length === 1 ? processes[0] : undefined;
-  const job = only ? attachedJob(only.argv) : null;
-  if (only) onProcess?.(only.pid, job !== null);
   let processDir: string | null = null;
   try {
     processDir = only ? await processClaudeConfigDir(only.pid, only.argv ?? [only.argv0 ?? only.name ?? ""], home) : null;
@@ -846,10 +845,12 @@ async function claudeTranscriptPath(paneId: string, cwds: readonly (string | nul
     throw error;
   }
   const configDir = processDir || defaultClaudeConfigDir(home);
-  if (job !== null) {
+  const attach = only ? await claudeAttachSession(configDir, only.pid, only.argv) : null;
+  if (only) onProcess?.(only.pid, attach !== null);
+  if (attach !== null) {
     // only the job's state names what the attach shows: a session an earlier Claude in this pane
     // reported through the hook can still be herdr's, and a job with none (a shell command) keeps the terminal
-    session = await claudeJobSession(configDir, job);
+    session = attach.session;
   } else if ((typeof session !== "string" || !SESSION_ID.test(session)) && only) {
     session = await claudeProcessSession(home, only.pid, configDir);
   }
