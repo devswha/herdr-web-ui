@@ -2,6 +2,7 @@ package sh.ovis.push;
 
 import android.Manifest;
 import android.os.Build;
+import androidx.core.app.NotificationManagerCompat;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
@@ -79,6 +80,32 @@ public class OvisPushPlugin extends Plugin {
             return;
         }
         getBridge().execute(() -> register(call));
+    }
+
+    /**
+     * { notifications: "granted" | "denied" | "prompt" | "prompt-with-rationale" }, which the client
+     * reads in place of a browser's Notification.permission. Before Android 13 there is no
+     * permission to ask (Capacitor's own answer would be "prompt", and asking would fail), only
+     * whether the user left the app's notifications on.
+     */
+    @Override
+    @PluginMethod
+    public void checkPermissions(PluginCall call) {
+        if (Build.VERSION.SDK_INT >= 33) super.checkPermissions(call);
+        else call.resolve(notificationsEnabled());
+    }
+
+    @Override
+    @PluginMethod
+    public void requestPermissions(PluginCall call) {
+        if (Build.VERSION.SDK_INT >= 33) super.requestPermissions(call);
+        else call.resolve(notificationsEnabled());
+    }
+
+    private JSObject notificationsEnabled() {
+        JSObject result = new JSObject();
+        result.put("notifications", NotificationManagerCompat.from(getContext()).areNotificationsEnabled() ? "granted" : "denied");
+        return result;
     }
 
     @PermissionCallback
