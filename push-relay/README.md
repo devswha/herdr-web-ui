@@ -105,8 +105,9 @@ request log keeps the address either.
 
 The relay needs the `ovis.sh` zone on the Cloudflare account it deploys to (the route in
 `wrangler.toml` makes `push.ovis.sh` a custom domain of the Worker), and an APNs auth key
-(a `.p8` file) from the Apple developer account that owns `sh.ovis.app`. Create the database and
-apply the schema once:
+(a `.p8` file) from the Apple developer account that owns `sh.ovis.app`; for Android, a service
+account key of the app's Firebase project ([app/android/ovis-push](../app/android/ovis-push/README.md)).
+Create the database and apply the schema once:
 
 ```sh
 cd push-relay
@@ -115,7 +116,7 @@ bunx wrangler d1 create ovis-push-relay   # then put its database_id in wrangler
 bunx wrangler d1 execute ovis-push-relay --remote --file schema.sql
 ```
 
-The APNs credentials are Worker secrets, never files in the repository:
+The APNs and FCM credentials are Worker secrets, never files in the repository:
 
 | Secret | Value |
 |---|---|
@@ -149,11 +150,23 @@ It registers the token with a throwaway VAPID key and sends one push as `server/
 `push: 201` means APNs took it, and the phone shows "herdr needs you" (it cannot decrypt a push
 made with throwaway keys). Anything else is APNs' or the relay's answer to look into.
 
+For Android, the same through FCM, with the FCM registration token of a phone that has the app:
+
+```sh
+bun push-relay/test-push.ts fcm <FCM registration token>
+```
+
+The tests use a fake Google too, so only this shows that the relay signs in with
+`FCM_SERVICE_ACCOUNT` and that FCM takes its message. `push: 201` means FCM took it. A made-up
+token (any 32 letters) checks the sign-in without a phone: FCM calls it invalid, and the relay
+answers `410` only once Google took its sign-in. Anything else is Google's, FCM's or the relay's
+answer to look into.
+
 ## Running your own
 
 The relay is open so anyone can run one: change `name`, the route and `APNS_TOPIC` in
 `wrangler.toml` to your own domain and app, and follow the steps above with your own Cloudflare
-and Apple accounts. Endpoints name the origin the registration came to, so they follow the
+and Apple accounts (and Firebase project, for Android). Endpoints name the origin the registration came to, so they follow the
 domain without a code change.
 
 ## Tests
