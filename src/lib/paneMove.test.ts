@@ -1,6 +1,7 @@
 import { expect, it } from "bun:test";
 import { ComposerDraftStore } from "./composerDraft.ts";
 import { carryPaneState } from "./paneMove.ts";
+import { readTerminalDraft, setTerminalDraftSending, writeTerminalDraft } from "./terminalDraft.ts";
 function fixture() {
   const data = new Map<string, string>();
   const storage = { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => { data.set(key, value); }, removeItem: (key: string) => { data.delete(key); } };
@@ -34,4 +35,17 @@ it("leaves a draft whose send is on its way, and keeps what the new ID holds alr
   expect(drafts.read("ovis:composer-draft:w2:p4").text).toBe("");
   expect(data.get("ovis:view:w2:p4")).toBe("terminal");
   expect(data.get("ovis:view:w1:p1")).toBe("chat");
+});
+it("carries a touch screen's unsent terminal line to the new ID, and leaves one on its way", () => {
+  const { drafts, storage } = fixture();
+  writeTerminalDraft("w7:p1", "git status");
+  carryPaneState("local", "w7:p1", "w8:p2", drafts, storage);
+  expect(readTerminalDraft("w8:p2")).toBe("git status");
+  expect(readTerminalDraft("w7:p1")).toBe("");
+  writeTerminalDraft("w7:p3", "make");
+  setTerminalDraftSending("w7:p3", true);
+  carryPaneState("local", "w7:p3", "w8:p4", drafts, storage);
+  setTerminalDraftSending("w7:p3", false);
+  expect(readTerminalDraft("w7:p3")).toBe("make");
+  expect(readTerminalDraft("w8:p4")).toBe("");
 });

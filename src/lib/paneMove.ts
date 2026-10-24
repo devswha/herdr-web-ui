@@ -8,6 +8,7 @@
 import { paneStorageId } from "../../shared/machines.ts";
 import { composerDrafts, type ComposerDraftStore } from "./composerDraft.ts";
 import { PANE_VIEW_KEY_PREFIX } from "./settings.ts";
+import { readTerminalDraft, terminalDraftSending, writeTerminalDraft } from "./terminalDraft.ts";
 
 type KeyStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
@@ -17,6 +18,13 @@ export function carryPaneState(machineId: string, from: string, to: string, draf
   const before = paneStorageId(machineId, from);
   const after = paneStorageId(machineId, to);
   drafts.move(`ovis:composer-draft:${before}`, `ovis:composer-draft:${after}`);
+  // a touch screen's terminal input line, through its store (it keeps the line in memory too); a
+  // line on its way stays, as a chat draft on its way does
+  const line = readTerminalDraft(before);
+  if (line && !terminalDraftSending(before) && !readTerminalDraft(after)) {
+    writeTerminalDraft(after, line);
+    writeTerminalDraft(before, "");
+  }
   for (const prefix of CARRIED) {
     try {
       const value = storage().getItem(prefix + before);
