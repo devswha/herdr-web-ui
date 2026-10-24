@@ -48,7 +48,7 @@ function runRunner(options: {
   dockerExitCode?: number;
   failedSlot?: number;
   /** "present" writes a host env file and passes it, "missing" passes a path that does not exist */
-  envFile?: "present" | "missing";
+  envFile?: "present" | "missing" | "bare";
 } = {}) {
   const tempDir = mkdtempSync(join(tmpdir(), "herdr-self-hosted-runner-test-"));
   const binDir = join(tempDir, "bin");
@@ -97,7 +97,8 @@ esac
     chmodSync(join(binDir, "gh"), 0o755);
     chmodSync(join(binDir, "docker"), 0o755);
     const envFile = join(tempDir, "host.env");
-    if (options.envFile === "present") writeFileSync(envFile, "CHECK_HOST_MAX_RUNS=6\n");
+    if (options.envFile === "present") writeFileSync(envFile, "# P620\n\nCHECK_HOST_MAX_RUNS=6\nCHECK_HOST_BROWSER_WORKERS=10\n");
+    if (options.envFile === "bare") writeFileSync(envFile, "CHECK_HOST_MAX_RUNS=6\nGH_TOKEN\n");
 
     const result = spawnSync("bash", [
       script,
@@ -157,6 +158,13 @@ describe.skipIf(process.platform === "win32")("self-hosted runner launcher", () 
     const { result, calls } = runRunner({ envFile: "missing" });
     expect(result.status).toBe(2);
     expect(result.stderr).toContain("--env-file");
+    expect(calls).not.toContain("docker run");
+  });
+
+  it("refuses a host env file line that would copy the launcher's own environment into the jobs", () => {
+    const { result, calls } = runRunner({ envFile: "bare" });
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain("2:GH_TOKEN");
     expect(calls).not.toContain("docker run");
   });
 

@@ -38,6 +38,13 @@ case "$COUNT" in ''|*[!0-9]*|0) echo "--count must be a positive integer" >&2; e
 ENV_ARGS=()
 if [ -n "$ENV_FILE" ]; then
   [ -f "$ENV_FILE" ] && [ -r "$ENV_FILE" ] || { echo "--env-file: cannot read $ENV_FILE" >&2; exit 2; }
+  # Only CHECK_HOST_* numbers: docker copies a bare NAME line from this launcher's own environment
+  # (GH_TOKEN, say) into every container, where any job could read it.
+  if bad="$(grep -nvE '^[[:space:]]*(#.*)?$|^CHECK_HOST_(MAX_RUNS|TEST_SHARDS|BROWSER_WORKERS|UNIT_WORKERS)=[0-9]+$' "$ENV_FILE")"; then
+    echo "--env-file: $ENV_FILE may hold only CHECK_HOST_*=<number> lines; refused:" >&2
+    printf '%s\n' "$bad" >&2
+    exit 2
+  fi
   ENV_ARGS=(--env-file "$ENV_FILE")
 fi
 
