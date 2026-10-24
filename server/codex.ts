@@ -1125,22 +1125,54 @@ export function titledThread(title: string | null | undefined): string | null {
 }
 
 /**
+ * What Codex drops from a terminal title (codex-rs rust-v0.163.0, tui/src/terminal_title.rs,
+ * is_disallowed_terminal_title_char): control characters and invisible or bidi formatting ones.
+ * Whitespace among them is not dropped but turned into a space, as Codex looks at it first.
+ */
+const TITLE_DROPPED = /(?!\p{White_Space})[\p{Cc}\u00AD\u034F\u061C\u180E\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFE00-\uFE0F\uFEFF\uFFF9-\uFFFB\u{1BCA0}-\u{1BCA3}\u{E0100}-\u{E01EF}]/gu;
+
+/** What Codex writes under GNU Screen (STY) for the activity spinner and its dot; any other non-ASCII character is "?". */
+const SCREEN_TITLE: Readonly<Record<string, string>> = {
+  "\u280b": "|", "\u283c": "|", "\u2807": "|", "\u2819": "/", "\u2834": "/", "\u280f": "/",
+  "\u2839": "-", "\u2826": "-", "\u2838": "\\", "\u2827": "\\", "\u25cf": "*",
+};
+
+/**
+ * Text as Codex writes it into a terminal title (sanitize_terminal_title, the same file): those
+ * characters dropped, whitespace runs one space; under GNU Screen, printable ASCII only.
+ */
+export function asCodexTitle(text: string, screen = false): string {
+  const shown = text.replace(TITLE_DROPPED, "").replace(/\p{White_Space}+/gu, " ").trim();
+  return screen ? shown.replace(/[^\x00-\x7f]/gu, (character) => SCREEN_TITLE[character] ?? "?") : shown;
+}
+
+/**
  * The rollout of the one unarchived thread the store holds under the id (or the start of one) a
  * Codex pane's title shows (titledThread), while a Codex process runs in the pane. Unlike the
  * command line, the title follows /new and a resume through the picker, from any folder (#896).
  * It is only a candidate for the screen to match, never taken on the title alone. The same text in
- * the pane's folders, or in any stored thread's folder or name, may be the title's project or thread
- * name rather than its thread-id item (a folder named after a thread): then the title tells nothing.
+ * the pane's folders, or in any stored thread's folder or name, as Codex writes them into the title
+ * (asCodexTitle), may be its project or thread name rather than its thread-id item (a folder named
+ * after a thread): then the title tells nothing.
  */
 function titledCandidate(agent: Pick<AgentInfo, "terminal_title" | "terminal_title_stripped" | "cwd" | "foreground_cwd">, codexProcesses: readonly unknown[], db: Database, home: string): string | null {
   const id = titledThread(agent.terminal_title_stripped ?? agent.terminal_title);
   if (id === null || codexProcesses.length === 0) return null;
-  if ([agent.cwd, agent.foreground_cwd].some((folder) => folder?.toLowerCase().includes(id))) return null;
+  // as Codex writes it, under GNU Screen too (STY), where some of its characters become "-"; without
+  // its spaces, as at its 240-character cap Codex drops a space before the last character it writes
+  const shows = (text: string | null | undefined) => typeof text === "string"
+    && [false, true].some((screen) => asCodexTitle(text, screen).replaceAll(" ", "").toLowerCase().includes(id));
+  if ([agent.cwd, agent.foreground_cwd].some(shows)) return null;
   const columns = new Set(db.query<{ name: string }, []>("SELECT name FROM pragma_table_info('threads')").all().map((column) => column.name));
   const named = ["cwd", "name", "title"].filter((column) => columns.has(column));
-  if (named.length > 0 && db.query<{ found: number }, string[]>(
-    `SELECT 1 AS found FROM threads WHERE ${named.map((column) => `instr(lower(${column}), ?) > 0`).join(" OR ")} LIMIT 1`,
-  ).get(...named.map(() => id)) !== null) return null;
+  // the text itself without its spaces, or any text with a character outside printable ASCII (all
+  // Codex drops or turns into "-" is), which is then read as Codex would write it; SQLite's text
+  // functions stop at a NUL, so that one is looked for in the bytes
+  const texts = named.length === 0 ? [] : db.query<Record<string, string | null>, string[]>(
+    `SELECT ${named.join(", ")} FROM threads WHERE ${named.map((column) =>
+      `instr(lower(replace(${column}, ' ', '')), ?) > 0 OR ${column} GLOB '*[^ -~]*' OR instr(CAST(${column} AS BLOB), X'00') > 0`).join(" OR ")}`,
+  ).all(...named.map(() => id));
+  if (texts.some((row) => named.some((column) => shows(row[column])))) return null;
   // ids are lowercase hex and dashes, all before "g": the range is every id that starts with this one
   const rows = db.query<{ rollout_path: string }, [string, string]>(
     "SELECT rollout_path FROM threads WHERE id >= ? AND id < ? AND archived = 0 LIMIT 2",
