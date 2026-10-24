@@ -97,6 +97,14 @@ it("the demo moves a one-pane tab to another workspace without stale tab or work
     assert.deepEqual(after.agents.filter((agent: any) => agent.pane_id === moved.pane_id).map((agent: any) => [agent.tab_id, agent.workspace_id]), [[moved.tab_id, to]]);
     assert.equal(after.workspaces.find((workspace: any) => workspace.workspace_id === from).active_tab_id, `${from}:t2`, "the workspace left behind opens its other tab");
     assert.deepEqual([after.focused_pane_id, after.focused_tab_id, after.focused_workspace_id], [moved.pane_id, moved.tab_id, to], "herdr's focus goes with the pane");
+    assert.equal(after.tabs.find((tab: any) => tab.tab_id === moved.tab_id).label, "move-from", "a named tab keeps its name");
+
+    // a name herdr gave by the tab's place stays behind: its place in the new workspace names it
+    // (the fixtures' tabs carry that name as their label, as herdr reports it)
+    await post("/api/tab/create", { workspace_id: from, label: "2" });
+    const unnamed = (await session()).tabs.filter((tab: any) => tab.workspace_id === from).at(-1).tab_id as string;
+    const placed = await post("/api/tab/move-to-workspace", { tab_id: unnamed, workspace_id: to });
+    assert.equal((await session()).tabs.find((tab: any) => tab.tab_id === placed.tab_id).label, "3");
 
     // the last tab takes its workspace with it
     await post("/api/tab/move-to-workspace", { tab_id: `${from}:t2`, workspace_id: to });

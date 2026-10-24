@@ -1448,7 +1448,11 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     const to = workspace.workspace_id;
     const number = Math.max(0, ...snap.tabs.filter((t) => t.workspace_id === to).map((t) => t.number)) + 1;
     const tabId = `${to}:t${number}`;
-    snap.tabs = [...snap.tabs.filter((t) => t !== tab), { ...tab, tab_id: tabId, workspace_id: to, number, focused: false }];
+    // as the route does: a name herdr gave by the tab's place stays behind, and the new place names it
+    const place = snap.tabs.filter((t) => t.workspace_id === from).indexOf(tab) + 1;
+    const named = tab.label.trim();
+    const label = named === "" || named === String(place) ? String(snap.tabs.filter((t) => t.workspace_id === to).length + 1) : tab.label;
+    snap.tabs = [...snap.tabs.filter((t) => t !== tab), { ...tab, tab_id: tabId, workspace_id: to, number, label, focused: false }];
     snap.layouts = snap.layouts.filter((l) => l.tab_id !== tab.tab_id);
     Object.assign(panes[0]!, { tab_id: tabId, workspace_id: to, focused: false });
     const agent = snap.agents.find((entry) => entry.pane_id === panes[0]!.pane_id);
