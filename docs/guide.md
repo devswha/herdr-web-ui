@@ -160,7 +160,7 @@ Every agent herdr runs shows up with its live status, terminal and alerts. The c
 | **omo** | Native session file, found through the pane's process tree | ✓ the `/model` list (picked for the session); other menus — use Terminal |
 | **gjc** | Native session file reported by the web UI's GJC extension, verified against the pane's process | — use Terminal |
 | **pi** | Native session file, resolved through herdr; after `/tree`, the branch in play | ✓ its dialogs: a question, a confirmation, an answer typed in |
-| **Command Code** (`cmd`) | Native session file under `~/.commandcode/projects/`, resolved through herdr; after `/tree`, the branch in play | ✓ its permission prompts: Yes / Yes, don't ask again / No |
+| **Command Code** (`cmd`) | Native session file under `~/.commandcode/projects/`, named by the session herdr reports for the pane (see below); after `/tree`, the branch in play | ✓ its permission prompts: Yes / Yes, don't ask again / No |
 | **OpenCode** | Native session in OpenCode 2's own database, resolved through herdr: `~/.local/share/opencode/opencode.db` (`%USERPROFILE%\.local\share\opencode\opencode.db` on Windows), or where the server's `XDG_DATA_HOME` or `OPENCODE_DB` puts it | ✓ its questions on OpenCode 2.0 or later, answered through its background service (`~/.local/state/opencode/service.json`, or under the server's `XDG_STATE_HOME`) one question at a time, with Back to change an earlier one; other prompts, and OpenCode 1 — use Terminal |
 | **Devin CLI** | Native SQLite session, showing the active branch when herdr or the live process explicitly identifies the session; otherwise terminal text | — use Terminal |
 | **Grok** | Linux native update log. Any Grok executable named `grok` or `grok-…` that holds the `events.jsonl` for the session Herdr reported in exactly one directory, with a newer write time than every other held session. Older open files do not hide it; ambiguous IDs, tied times, and an unreported `/resume` use Terminal until Herdr names the confirmed session. macOS and Windows use Terminal. See [Grok setup and limits](grok-chat.md). | — use Terminal |
@@ -195,6 +195,14 @@ Status tracking reads the same binding. Without it, a GJC pane keeps herdr's own
 which follows GJC's provider child: a finished turn can stay on working, so no done alert
 comes and no INPUT shows for an open question. Install the extension and restart GJC to
 get both chat and done alerts back.
+
+Command Code chat needs the session herdr reports for the pane. Command Code sends that report
+and herdr keeps only the sessions of the agents it knows natively, so no released herdr accepts
+it yet: the pane's status, title and model arrive, its conversation does not. Without it the
+bridge cannot tell which file under `~/.commandcode/projects/` a pane is showing, and two `cmd`
+panes in one folder are indistinguishable, so Command Code opens in Terminal. Its permission
+prompt cards are read off the screen, not from the session file, so they answer from the chat
+either way.
 
 Devin sessions are never selected by directory or recency alone. A plain `devin` shows the
 terminal text, since herdr does not report its session without its Devin integration; a session
