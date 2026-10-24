@@ -48,7 +48,7 @@ const waitOutput = (pane: string, value: string) => herdrRpc("pane.wait_for_outp
   throw new Error(`${value} did not appear: ${error}\n${seen.slice(-1500)}`);
 });
 
-interface ProbeEvent { k: string; t: number; y?: number; wheels?: number; pane?: string; frame?: string }
+interface ProbeEvent { k: string; t: number; y?: number; wheels?: number; pane?: string; frame?: string; ft?: number }
 interface Probe {
   events: ProbeEvent[];
   longtasks: Array<{ start: number; duration: number }>;
@@ -57,6 +57,8 @@ interface Probe {
   ptyFrames: number;
   lastPaint: number;
   hidden: boolean;
+  /** the timestamp of the animation frame whose callback is running, shared by every callback of that frame */
+  frameTime: number | null;
 }
 interface FrameHold { hold: boolean; step(): Promise<number>; release(): void }
 declare global { interface Window { __burst: Probe; __frames: FrameHold; __socket?: WebSocket } }
@@ -106,7 +108,7 @@ function path(gesture: Gesture, top: number, travel: number, cell: number): numb
 async function instrument(context: BrowserContext): Promise<void> {
   await context.addInitScript(() => {
     localStorage.setItem("ovis:settings", JSON.stringify({ language: "en", theme: "dark", defaultView: "terminal", terminalInputMode: "direct", alertsOn: false }));
-    const probe: Probe = { events: [], longtasks: [], frames: [], lastPtyData: 0, ptyFrames: 0, lastPaint: 0, hidden: false };
+    const probe: Probe = { events: [], longtasks: [], frames: [], lastPtyData: 0, ptyFrames: 0, lastPaint: 0, hidden: false, frameTime: null };
     window.__burst = probe;
     const now = () => performance.now();
     try {
@@ -116,6 +118,12 @@ async function instrument(context: BrowserContext): Promise<void> {
     // or releases the clock. The probe's own frame log runs on the real clock.
     const realRequest = window.requestAnimationFrame.bind(window);
     const realCancel = window.cancelAnimationFrame.bind(window);
+    // every page callback runs with its frame's timestamp on the probe: a report is counted in the
+    // frame that sent it
+    const tagged = (callback: FrameRequestCallback): FrameRequestCallback => (time) => {
+      probe.frameTime = time;
+      try { callback(time); } finally { probe.frameTime = null; }
+    };
     let held: Array<{ id: number; callback: FrameRequestCallback }> = [];
     let heldId = 0;
     const hold: FrameHold = {
@@ -123,19 +131,19 @@ async function instrument(context: BrowserContext): Promise<void> {
       step: () => new Promise((resolve) => realRequest((time) => {
         const due = held;
         held = [];
-        for (const { callback } of due) callback(time);
+        for (const { callback } of due) { probe.frameTime = time; try { callback(time); } finally { probe.frameTime = null; } }
         resolve(due.length);
       })),
       release() {
         hold.hold = false;
         const due = held;
         held = [];
-        for (const { callback } of due) realRequest(callback);
+        for (const { callback } of due) realRequest(tagged(callback));
       },
     };
     window.__frames = hold;
     window.requestAnimationFrame = (callback) => {
-      if (!hold.hold) return realRequest(callback);
+      if (!hold.hold) return realRequest(tagged(callback));
       heldId -= 1;
       held.push({ id: heldId, callback });
       return heldId;
@@ -153,7 +161,7 @@ async function instrument(context: BrowserContext): Promise<void> {
     window.addEventListener("touchmove", (event) => { probe.events.push({ k: "touchmove", t: now(), y: event.touches[0]?.clientY }); }, { capture: true });
     window.addEventListener("touchend", () => { probe.events.push({ k: "touchend", t: now() }); }, { capture: true });
     window.addEventListener("keydown", (event) => { probe.events.push({ k: "keydown", t: now(), frame: event.key }); }, { capture: true });
-    document.addEventListener("wheel", (event) => { if (!event.isTrusted) probe.events.push({ k: "wheel", t: now() }); }, { capture: true });
+    document.addEventListener("wheel", (event) => { if (!event.isTrusted) probe.events.push({ k: "wheel", t: now(), ft: probe.frameTime ?? undefined }); }, { capture: true });
     new MutationObserver((records) => {
       if (records.some((record) => (record.target as Element).closest?.(".xterm-rows") || record.target.parentElement?.closest(".xterm-rows"))) probe.lastPaint = now();
     }).observe(document, { subtree: true, childList: true, characterData: true });
@@ -331,11 +339,12 @@ process.stdout.write(Array.from({ length: 400 }, (_, n) => "app history " + n + 
       const wheels = gestureEvents.filter((event) => event.k === "wheel");
       const lastWheel = wheels.at(-1)?.t ?? touchend;
       const gaps = probe.frames.slice(1).map((t, i) => t - probe.frames[i]!).filter((_, i) => probe.frames[i + 1]! >= touchstart && probe.frames[i]! <= lastWheel + 50);
-      // reports dispatched per animation frame: wheel events grouped by the frame they fall in
+      // reports dispatched per animation frame: wheel events grouped by the frame callback that sent
+      // them (its frame timestamp), never by wall-clock time, which a late frame under load blurs
       const perFrame = new Map<number, number>();
       for (const event of wheels) {
-        const index = probe.frames.findIndex((t) => t > event.t);
-        perFrame.set(index, (perFrame.get(index) ?? 0) + 1);
+        const frame = event.ft ?? -1;
+        perFrame.set(frame, (perFrame.get(frame) ?? 0) + 1);
       }
       // the queue right after each touch handler pushed its steps: derived so far less reports already dispatched
       const touches = gestureEvents.filter((event) => event.k === "touchmove" || event.k === "touchend");
@@ -424,7 +433,7 @@ process.stdout.write(Array.from({ length: 400 }, (_, n) => "app history " + n + 
     return page.evaluate((want) => window.__burst.events.filter((event) => event.k === want.kind && event.t > want.after
       && (want.pane === null || event.pane === want.pane) && (want.wheels === null || event.wheels === want.wheels)).at(-1)!, want);
   };
-  for (const boundary of ["new-touch", "key", "disconnect", "pane-switch", "observe-role", "lease-release"] as const) {
+  for (const boundary of ["new-touch", "second-finger-outside", "key", "disconnect", "pane-switch", "observe-role", "lease-release"] as const) {
     await open(appPane);
     await page.locator(".xterm-helper-textarea").first().focus();
     const box = (await page.locator(".xterm-screen").first().boundingBox())!;
@@ -445,6 +454,12 @@ process.stdout.write(Array.from({ length: 400 }, (_, n) => "app history " + n + 
     if (boundary === "new-touch") {
       await touch("touchEnd");
       await touch("touchStart", x, top);
+      established = (await lastEvent("touchstart"))!;
+      await touch("touchEnd");
+    } else if (boundary === "second-finger-outside") {
+      // the swiping finger stays down; a second one lands on the tab bar above the terminal, where the
+      // terminal's own touch listener never sees it
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y: top + stepPixels * 10.75, id: 0 }, { x, y: box.y - 40, id: 1 }] });
       established = (await lastEvent("touchstart"))!;
       await touch("touchEnd");
     } else if (boundary === "key") {
@@ -488,7 +503,7 @@ process.stdout.write(Array.from({ length: 400 }, (_, n) => "app history " + n + 
     }
     await page.locator(".conn-live").waitFor();
     // and only now the finger lifts: what was left of the old swipe must not go with it
-    if (boundary !== "new-touch") await touch("touchEnd");
+    if (boundary !== "new-touch" && boundary !== "second-finger-outside") await touch("touchEnd");
     for (let n = 0; n < 4; n++) await nextFrame(page);
     await mark();
     const events = await page.evaluate(() => window.__burst.events);

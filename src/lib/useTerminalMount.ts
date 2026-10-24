@@ -1489,6 +1489,7 @@ export function useTerminalMount(deps: TerminalMountDeps): void {
       };
       const onTouchMove = (event: TouchEvent): void => {
         if (!pinchStroke && event.touches.length > 1) {
+          touchPacer.cancel();
           tracking = false;
           pinchStroke = true;
         }
@@ -1584,6 +1585,12 @@ export function useTerminalMount(deps: TerminalMountDeps): void {
       // Safari zooms inside an overflow region (xterm's viewport) despite touch-action: none
       const onGesture = (event: Event): void => { if (!chatViewRef.current) event.preventDefault(); };
       host.addEventListener("touchstart", onTouchStart, { capture: true, passive: false });
+      // a finger landing anywhere else on the page (a second one beside the swipe too) never reaches
+      // the host's listener: it ends the swipe all the same
+      const onPageTouchStart = (event: TouchEvent): void => {
+        if (event.touches.length > 1 || !(event.target instanceof Node && host.contains(event.target))) cancelTouchRef.current();
+      };
+      document.addEventListener("touchstart", onPageTouchStart, { capture: true, passive: true });
       host.addEventListener("touchmove", onTouchMove, { capture: true, passive: false });
       host.addEventListener("touchend", onTouchEnd, { capture: true, passive: false });
       host.addEventListener("touchcancel", onTouchEnd, { capture: true, passive: false });
@@ -1837,6 +1844,7 @@ export function useTerminalMount(deps: TerminalMountDeps): void {
         observer.disconnect();
         if (resizeTimer !== null) window.clearTimeout(resizeTimer);
         host.removeEventListener("touchstart", onTouchStart, { capture: true });
+        document.removeEventListener("touchstart", onPageTouchStart, { capture: true });
         host.removeEventListener("touchmove", onTouchMove, { capture: true });
         host.removeEventListener("touchend", onTouchEnd, { capture: true });
         host.removeEventListener("touchcancel", onTouchEnd, { capture: true });
