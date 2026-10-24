@@ -869,20 +869,31 @@ function answerAnchor(text: string): string | null {
 
 /** Shared app-server TUIs do not hold rollout descriptors. For read-only display,
  * require a unique substantial assistant-message match in this pane's output.
- * Directory recency alone is never evidence: multiple panes can share a cwd. */
-export function matchCodexTranscript(screen: string, candidates: { path: string; text: string }[]): string | null {
+ * Directory recency alone is never evidence: multiple panes can share a cwd.
+ * A `scrutinized` candidate (one only a title offered, from another folder) counts only on an
+ * answer no other candidate ever gave, however long ago: one the others gave too is no proof the
+ * pane shows it, and leaves the choice open rather than letting another win by elimination. */
+export function matchCodexTranscript(screen: string, candidates: { path: string; text: string }[], scrutinized: ReadonlySet<string> = new Set()): string | null {
   const lastHeader = screen.lastIndexOf("OpenAI Codex (v");
   const display = normalizeDisplay(lastHeader >= 0 ? screen.slice(lastHeader) : screen);
+  const answersOf = (turns: ConversationTurn[]) => turns.filter((turn) => turn.role === "assistant")
+    .flatMap((turn) => turn.parts).filter((part) => part.kind === "text").map((part) => part.text);
+  const parsed = candidates.map((candidate) => parseCodexTranscript(candidate.text, Infinity));
+  // every answer each candidate gave, as answerAnchor reads one (cut at link targets), read once
+  let shown: string[] | undefined;
+  const givenElsewhere = (index: number, anchor: string) => (shown ??= parsed.map((turns) =>
+    answersOf(turns).flatMap((text) => text.split(/\]\([^)\s]*\)/).map(normalizeDisplay)).join("\n")))
+    .some((given, at) => at !== index && given.includes(anchor));
   const matching = new Set<string>();
-  for (const candidate of candidates) {
-    const prose = parseCodexTranscript(candidate.text).filter((turn) => turn.role === "assistant")
-      .flatMap((turn) => turn.parts).filter((part) => part.kind === "text").slice(-8);
-    if (prose.some((part) => {
-      const anchor = answerAnchor(part.text);
-      return anchor !== null && display.includes(anchor);
-    })) matching.add(candidate.path);
+  let open = false;
+  for (const [index, candidate] of candidates.entries()) {
+    const anchors = answersOf(parsed[index]!.slice(-100)).slice(-8).map(answerAnchor)
+      .filter((anchor): anchor is string => anchor !== null && display.includes(anchor));
+    if (anchors.length === 0) continue;
+    if (!scrutinized.has(candidate.path) || anchors.some((anchor) => !givenElsewhere(index, anchor))) matching.add(candidate.path);
+    else open = true;
   }
-  return matching.size === 1 ? [...matching][0]! : null;
+  return !open && matching.size === 1 ? [...matching][0]! : null;
 }
 
 /**
@@ -1095,6 +1106,36 @@ export function matchCodexFirstExchange(
     || !Number.isFinite(match.candidate.createdAtMs) || match.candidate.createdAtMs < startedAtMs
     || excluded.has(match.candidate.path)) return null;
   return match.candidate.path;
+}
+
+/** A thread id in a terminal title: whole, or the start Codex leaves when it shortens the item. */
+const TITLE_ID = /(?<![0-9a-f-])[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-(?:[0-9a-f]{12}(?![0-9a-f-])|[0-9a-f]{0,11}(?:\.\.\.|\u2026))/gi;
+
+/**
+ * The thread id, or the start of one, in a Codex TUI's terminal title as herdr reports it. Codex's
+ * opt-in `thread-id` title item ("Current thread identifier", [tui].terminal_title) shows the current
+ * thread there; 0.163.0 shortens it to 29 characters and "...". One id only: none or two tell nothing.
+ */
+export function titledThread(title: string | null | undefined): string | null {
+  const ids = new Set([...(title ?? "").matchAll(TITLE_ID)].map((match) => match[0].toLowerCase().replace(/(?:\.\.\.|\u2026)$/, "")));
+  return ids.size === 1 ? [...ids][0]! : null;
+}
+
+/**
+ * The rollout of the one unarchived thread the store holds under the id (or the start of one) a
+ * Codex pane's title shows (titledThread), while a Codex process runs in the pane. Unlike the
+ * command line, the title follows /new and a resume through the picker, from any folder (#896).
+ * It is only a candidate for the screen to match, never taken on the title alone: a folder or a
+ * thread name that merely looks like an id must not pick a conversation the pane does not show.
+ */
+function titledCandidate(title: string | null | undefined, codexProcesses: readonly unknown[], db: Database, home: string): string | null {
+  const id = titledThread(title);
+  if (id === null || codexProcesses.length === 0) return null;
+  // ids are lowercase hex and dashes, all before "g": the range is every id that starts with this one
+  const rows = db.query<{ rollout_path: string }, [string, string]>(
+    "SELECT rollout_path FROM threads WHERE id >= ? AND id < ? AND archived = 0 LIMIT 2",
+  ).all(id, `${id}g`);
+  return rows.length === 1 ? codexRolloutPath(rows[0]!.rollout_path, home) : null;
 }
 
 /** `codex resume <thread>`: the thread a TUI was started on, straight from its command line. */
@@ -1581,7 +1622,8 @@ export async function codexTranscriptPath(paneId: string, cwd: string, home = de
     const open = new Set(panes.map((pane) => pane.pane_id));
     for (const pane of [...boundRollouts.keys()]) if (!open.has(pane)) boundRollouts.delete(pane);
   }
-  const session = (await agentGet(paneId)).agent_session;
+  const agent = await agentGet(paneId);
+  const session = agent.agent_session;
   if (session?.kind === "path" && session.value) return codexRolloutPath(session.value, home);
 
   const { codexProcesses, processes, open } = await openRollouts(paneId, home);
@@ -1601,6 +1643,8 @@ export async function codexTranscriptPath(paneId: string, cwd: string, home = de
   let reported: string | null = null;
   /** whether every interactive thread in this cwd is among the candidates */
   let listed = false;
+  /** the conversation only the title offers (titledCandidate), from another folder */
+  let titledElsewhere: string | null = null;
   try {
     db = new Database(join(home, "state_5.sqlite"), { readonly: true, create: false });
     if (session?.value && UUID.test(session.value)) {
@@ -1634,14 +1678,18 @@ export async function codexTranscriptPath(paneId: string, cwd: string, home = de
     const rollouts = rows.slice(0, 32).map((row) => codexRolloutPath(row.rollout_path, home));
     // a thread whose rollout is gone or outside the store is still a conversation of this cwd
     listed = rows.length <= 32 && !rollouts.includes(null);
+    // since Codex 0.157 the shared app-server daemon, not the TUI, holds the rollout open, and a resume
+    // through the picker leaves no id on the command line: the title may name a thread of another folder
     paths = [...new Set([...paths, ...(reported !== null ? [reported] : []), ...rollouts.filter((path): path is string => path !== null)])];
+    const titled = titledCandidate(agent.terminal_title_stripped ?? agent.terminal_title, codexProcesses, db, home);
+    if (titled !== null && !paths.includes(titled)) { titledElsewhere = titled; paths.push(titled); }
   } catch { /* Older installations can still resolve their open descriptors. */ }
   finally { db?.close(); }
   const screen = paths.length ? await paneRead({ paneId, source: "recent", lines: 400, stripAnsi: true }) : null;
   const candidates = paths.flatMap((path) => {
     try { return [{ path, text: codexHistoryTail(path, 1024 * 1024, home) }]; } catch { return []; }
   });
-  const matched = screen ? matchCodexTranscript(screen.text, candidates) : null;
+  const matched = screen ? matchCodexTranscript(screen.text, candidates, new Set(titledElsewhere === null ? [] : [titledElsewhere])) : null;
   if (matched !== null) {
     boundRollouts.delete(paneId);
     boundRollouts.set(paneId, { processes, path: matched, at: Date.now() });
@@ -1688,5 +1736,8 @@ export async function codexTranscriptPath(paneId: string, cwd: string, home = de
   } catch { return null; }
   const short = matchShortCodexAnswers(screen.text, candidates.map((candidate, index) => ({ ...candidate, cut: cut[index] })));
   if (short !== null) return short;
+  // it weighs this folder's threads only: beside a conversation the title offers from another
+  // folder, the same short exchange there would be left out of the choice
+  if (titledElsewhere !== null) return null;
   return shortThreadFromProcess(paneId, cwd, home, screen.text, codexProcesses, panes);
 }
