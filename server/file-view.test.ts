@@ -720,37 +720,44 @@ describe("page files read through the descriptor that was validated", () => {
   });
 
   it.skipIf(windows)("refuses a page whose folder becomes a link to another folder once it is resolved", async () => {
-    const { root, site, outside, page } = layout();
-    writeFileSync(join(outside, "page.html"), "<p>OUTSIDE-PAGE-SECRET</p>");
-    const found = fileInfo(page)!;
-    // swapped just after the page's folder and path are resolved, and left so
-    pageFileHooks.pageFolder = () => {
-      renameSync(site, join(root, "parked"));
-      symlinkSync(outside, site);
-    };
-    const response = fileResponse(found, false, true, owner());
-    expect(response.status).toBe(404);
-    expect(await response.text()).not.toContain("OUTSIDE-PAGE-SECRET");
+    // this platform's own proof, and the samples the others take
+    for (const platform of [undefined, "darwin"] as const) {
+      const { root, site, outside, page } = layout();
+      writeFileSync(join(outside, "page.html"), "<p>OUTSIDE-PAGE-SECRET</p>");
+      const found = fileInfo(page)!;
+      if (platform) pageFileHooks.platform = platform;
+      // swapped between the folder's one lookup and the page's open, and left so
+      pageFileHooks.pageFolder = () => {
+        renameSync(site, join(root, "parked"));
+        symlinkSync(outside, site);
+      };
+      const response = fileResponse(found, false, true, owner());
+      expect(response.status).toBe(404);
+      expect(await response.text()).not.toContain("OUTSIDE-PAGE-SECRET");
+      delete pageFileHooks.platform;
+      delete pageFileHooks.pageFolder;
+    }
   });
 
-  it.skipIf(windows)("draws a page that is itself a link, taking its files from the link's folder", async () => {
+  it.skipIf(windows)("does not draw a page that is itself a link", async () => {
     const { root, site } = layout();
     mkdirSync(join(root, "pages"));
     writeFileSync(join(root, "pages", "real.html"), `<img id="pic" src="sub/f.png">`);
     const linked = join(site, "linked.html");
     symlinkSync(join(root, "pages", "real.html"), linked);
+    // its source still opens as text; drawn as a page, the file read could not be told from a swapped one
     const response = fileResponse(fileInfo(linked)!, false, true, null);
-    expect(response.status).toBe(200);
-    expect(drawn(await response.text()).picture).toBe(true);
+    expect(response.status).toBe(404);
+    expect(await fileResponse(fileInfo(linked)!, false, false, null).text()).toBe(`<img id="pic" src="sub/f.png">`);
   });
 
-  it.skipIf(windows)("refuses a page that is not the file of its name in the folder it was resolved to", async () => {
+  it.skipIf(windows)("never draws the asked page with the files of a folder it was not read from", async () => {
     const { root, site, page } = layout();
     const hidden = join(root, ".private");
     mkdirSync(join(hidden, "sub"), { recursive: true });
     writeFileSync(join(hidden, "sub", "f.png"), png("OUTSIDE-SECRET"));
     marked(join(hidden, "sub", "clip.mp4"), "OUTSIDE-SECRET");
-    // a page of the same name there, so only its device and inode tell it from the one opened
+    // a page of the same name there: what the path meant when it was looked up
     writeFileSync(join(hidden, "page.html"), "<p>another page</p>");
     const found = fileInfo(page)!;
     // the page's folder is a link to that folder while it is resolved, and the page's own again once it is opened
@@ -765,8 +772,11 @@ describe("page files read through the descriptor that was validated", () => {
     };
     const response = fileResponse(found, false, true, owner());
     expect(resolvedTo).toBe(hidden);
-    expect(response.status).toBe(404);
-    expect(drawn(await response.text())).toEqual({ picture: false, tokens: [], outsideBytes: false });
+    // the page read is the one in the folder its files come from: the asked page (its own script) is
+    // never drawn with that folder's files
+    const text = await response.text();
+    expect(text).not.toContain(`id="clip"`);
+    expect(drawn(text)).toEqual({ picture: false, tokens: [], outsideBytes: false });
   });
 
   // Windows refuses to rename a folder while a file in it is open, so the swap cannot be staged there

@@ -531,18 +531,21 @@ function openedWithin(fd: number, file: string, root: string, roots: readonly st
 }
 
 /**
- * Whether the page open at `fd` is `file`, its path resolved before it was opened: on Linux the kernel's
- * path of the descriptor (one that cannot be read, or was deleted, is not); elsewhere its path resolved
- * again after the open, a sample like the other platforms' checks (`openAuthorized`). A page that is
- * itself a link is the file it leads to, and its folder stays the link's, as before.
+ * Whether the page open at `fd` (whose identity is `opened`) is `file`, the file of its name in the
+ * folder resolved before it was opened: on Linux the kernel's path of the descriptor is that path (one
+ * that cannot be read, or was deleted, is not); elsewhere that name is a file, not a link, with the
+ * descriptor's device and inode, and still resolves to itself (no folder on the way became a link):
+ * samples, like the other platforms' checks (`openAuthorized`). A page that is itself a link is not
+ * drawn as a page.
  */
-function pageOpenedAs(fd: number, path: string, file: string): boolean {
+function pageOpenedAs(fd: number, file: string, opened: BigIntStats): boolean {
   if ((pageFileHooks.platform ?? process.platform) === "linux") {
-    let opened: string;
-    try { opened = (pageFileHooks.readlink ?? readlinkSync)(`/proc/self/fd/${fd}`); } catch { return false; }
-    return opened === file;
+    let path: string;
+    try { path = (pageFileHooks.readlink ?? readlinkSync)(`/proc/self/fd/${fd}`); } catch { return false; }
+    return path === file;
   }
-  return realpathSync(path) === file;
+  const named = lstatSync(file, { bigint: true });
+  return named.isFile() && named.dev === opened.dev && named.ino === opened.ino && realpathSync(file) === file;
 }
 
 /** Every folder from `root` to `file`'s own is a folder (not a link), owned by `uid`, and writable by no group or other user. */
@@ -630,24 +633,20 @@ interface PageAsset { target: string; mime: string; size: number; data: string |
  * page. Null when the page is not a file of at most `EMBED_PAGE_BYTES`, or changed while it was read.
  */
 export function pageWithLocalFiles(path: string, media: PageMedia | null = null): string | null {
-  // the page's folder and the page itself are resolved before the page is opened, and the page read
-  // must be that file, the file of its name in that folder: a folder swapped for a link around these
-  // looks would otherwise serve another folder's page, or make it the folder the page's files come from
+  // the page's folder is resolved once, before the page is opened, and the page read must be the file
+  // of its name in that folder, proven from its descriptor (`pageOpenedAs`), not by looking its path up
+  // again: a folder swapped for a link between any two lookups would otherwise serve another folder's
+  // page, or make it the folder the page's files come from
   let folder: string;
-  let file: string;
-  try {
-    folder = realpathSync(dirname(path));
-    file = realpathSync(path);
-  } catch { return null; }
+  try { folder = realpathSync(dirname(path)); } catch { return null; }
   pageFileHooks.pageFolder?.(folder);
+  const file = join(folder, basename(path));
   let html: string;
   let fd: number;
-  try { fd = openSync(path, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0)); } catch { return null; }
+  try { fd = openSync(file, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0) | (constants.O_NOFOLLOW ?? 0)); } catch { return null; }
   try {
     const page = fstatBig(fd);
-    if (!page.isFile() || page.size > BigInt(EMBED_PAGE_BYTES)) return null;
-    const named = statSync(join(folder, basename(path)), { bigint: true });
-    if (named.dev !== page.dev || named.ino !== page.ino || !pageOpenedAs(fd, path, file)) return null;
+    if (!page.isFile() || page.size > BigInt(EMBED_PAGE_BYTES) || !pageOpenedAs(fd, file, page)) return null;
     const bytes = readWhole(fd, Number(page.size), page.mtimeNs);
     if (bytes === null) return null;
     html = bytes.toString("utf8");
