@@ -49,7 +49,11 @@ public class OvisPushPlugin extends Plugin {
         PushStore.Endpoint saved = origin == null ? null : PushStore.endpoint(getContext(), origin);
         try {
             JSObject result = new JSObject();
-            result.put("subscription", saved == null ? JSONObject.NULL : subscription(saved.endpoint));
+            result.put("subscription", saved == null ? JSONObject.NULL : subscription(saved.endpoint, PushStore.read(getContext())));
+            call.resolve(result);
+        } catch (PushKeys.Damaged damaged) {
+            JSObject result = new JSObject();
+            result.put("subscription", JSONObject.NULL);
             call.resolve(result);
         } catch (GeneralSecurityException e) {
             call.reject("The push keys could not be read", "failed", e);
@@ -139,7 +143,7 @@ public class OvisPushPlugin extends Plugin {
             String endpoint = live ? saved.endpoint : registerWithRelay(token, vapidKey);
             PushStore.saveEndpoint(getContext(), origin, endpoint, token, vapidKey);
             JSObject result = new JSObject();
-            result.put("subscription", subscription(endpoint));
+            result.put("subscription", subscription(endpoint, PushStore.keys(getContext())));
             call.resolve(result);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -196,8 +200,7 @@ public class OvisPushPlugin extends Plugin {
         }
     }
 
-    private JSObject subscription(String endpoint) throws GeneralSecurityException {
-        PushKeys keys = PushStore.keys(getContext());
+    private JSObject subscription(String endpoint, PushKeys keys) {
         Base64.Encoder url = Base64.getUrlEncoder().withoutPadding();
         JSObject keyFields = new JSObject();
         keyFields.put("p256dh", url.encodeToString(keys.publicPoint));

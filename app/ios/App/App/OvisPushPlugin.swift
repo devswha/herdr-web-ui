@@ -124,6 +124,8 @@ public class OvisPushPlugin: CAPPlugin, CAPBridgedPlugin, NotificationHandlerPro
                 return
             }
             call.resolve(["subscription": subscription(saved.endpoint, keys)])
+        } catch PushKeyStore.Failure.damaged {
+            call.resolve(["subscription": NSNull()])
         } catch { call.reject("The push keys could not be read", "failed") }
     }
 
