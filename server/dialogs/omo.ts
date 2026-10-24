@@ -410,7 +410,7 @@ function parseOmoReview(screen: string, ask: OmoAsk | null, trusted: boolean): P
  * form with Alt+Up, verifies the call and question again, then uses the form's navigation.
  * No answer text is sent to the composer, even when whitespace makes its draft look empty.
  */
-function parseOmoPending(screen: string, pending: OmoAsk[]): ParsedPrompt | null {
+function parseOmoPending(screen: string, pending: readonly OmoAsk[]): ParsedPrompt | null {
   const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
   const hintIndex = findLastIndex(lines, (_, index) => OMO_PENDING_HINT_RE.test(wrapped(lines, index)));
   if (hintIndex < 0) return null;
