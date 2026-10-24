@@ -198,7 +198,15 @@ What is there:
   built from this checkout's client, into `app/www` for Capacitor to copy.
 - `app/ios/App/App/HerdrBridgeViewController.swift`: a Capacitor view controller that opens the
   chosen PC as the WebView's first page (`instanceDescriptor().serverURL`). It also lets the
-  PC's whole host stay in the app and shows `error.html` when the first load fails. The
+  PC's whole host stay in the app and shows `error.html` when the first load fails. A redirect
+  of the address being opened to another origin is handled as on Android (see
+  [The Android app](#the-android-app)), where Capacitor would send another host to Safari.
+  WebKit has no public mark for a redirect, so until the first page commits,
+  `NavigationFailureProxy` takes any main-frame action to another origin that comes while the
+  main frame's navigation has not committed for one. Its question to `/api/health` is a
+  `URLSession` request, which App Transport Security keeps to https and local names (`localhost`,
+  `.local`, a one-word name): a redirect to plain http on a tailnet address or name ends on the
+  error page, which names the address to open directly (the web view itself may load it). The
   `HerdrShell` plugin (`HerdrShellPlugin.swift`) opens, forgets and leaves PCs. Opening or
   leaving one builds a fresh view controller, so the next page is again a first load, and the old
   one goes with its web view. `@capacitor/barcode-scanner` kept every old one alive (its scanner
@@ -367,6 +375,20 @@ pieces are the Java twins of the iOS ones, in `app/android/app/src/main/java/sh/
   launch screen (`windowSplashScreenBackground`).
 - A link to the PC's host over the other scheme (http for an https PC) opens in the browser: it is
   another origin, which gets no bridge.
+- A redirect is not a link. Capacitor would hand a redirect to another host or scheme to the
+  browser (Firefox opened the PC for testers whose default browser it was), and a page on another
+  port would have no bridge. So until the first page shows (`onPageCommitVisible`), `MainActivity`
+  holds a redirect of the address being opened to another origin back and asks that origin's
+  `/api/health?scope=bridge`, which Ovis answers to anyone (`PCStore.ovisOrigin`, following up
+  to five redirects of that request and giving up after about ten seconds in all; a slow name
+  lookup, which Android cannot cut short, can add a few). An origin that answers as Ovis
+  (http to https, an IP address to the PC's name, another port) becomes the PC and opens again as
+  the first page, with the bridge: it gets nothing the address's own page would not have had.
+  Anything else, such as a sign-in page, another site or a loop, gets no bridge and is not saved,
+  and the error page names where the address led. After five PCs in a row made this way, the next
+  redirect ends on the error page too. Once the first page shows, Capacitor decides on redirects
+  as before: one could then come from a link to a page that is not the PC's (another port on its
+  host), which must not choose the PC.
 - `file_paths.xml` shares only the app's external Pictures folder, where Capacitor puts a photo
   taken for a file input.
 - `build-web.ts` leaves out the client build's `.gz` and `.br` sidecars. The app reads files
