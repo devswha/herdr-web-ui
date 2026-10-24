@@ -549,7 +549,7 @@ describe("WebSocket submit", () => {
     try {
       socket.send({ type: "submit", id: 29, pane_id: agent.pane, text: "chat message", payload: "chat message" });
       expect(await socket.result(29)).toMatchObject({ ok: true, pane_id: agent.pane });
-      expect(prompt).toHaveBeenCalledWith(agent.pane, "chat message");
+      expect(prompt).toHaveBeenCalledWith(agent.pane, "chat message", undefined, expect.any(Function));
       expect(sendText).not.toHaveBeenCalled();
       expect(sendKeys).not.toHaveBeenCalled();
     } finally {
@@ -601,7 +601,7 @@ describe("WebSocket submit", () => {
     try {
       socket.send({ type: "submit", id: 32, pane_id: hermes.pane, text: "PINEAPPLE", payload: "PINEAPPLE" });
       expect(await socket.result(32)).toMatchObject({ ok: true, pane_id: hermes.pane });
-      expect(prompt).toHaveBeenCalledWith(hermes.pane, "PINEAPPLE");
+      expect(prompt).toHaveBeenCalledWith(hermes.pane, "PINEAPPLE", undefined, expect.any(Function));
       expect(sendText).not.toHaveBeenCalled();
     } finally {
       sendText.mockRestore();
@@ -626,7 +626,7 @@ describe("WebSocket submit", () => {
       expect(prompt).not.toHaveBeenCalled();
       socket.send({ type: "submit", id: 91, pane_id: agent.pane, text: "chat message", payload: "chat message", send_anyway: true });
       expect(await socket.result(91)).toMatchObject({ ok: true, pane_id: agent.pane });
-      expect(prompt).toHaveBeenCalledWith(agent.pane, "chat message");
+      expect(prompt).toHaveBeenCalledWith(agent.pane, "chat message", undefined, expect.any(Function));
       expect(sendText).not.toHaveBeenCalled();
       expect(sendKeys).not.toHaveBeenCalled();
       // the refusal is used up: a second send anyway is refused, typing nothing
@@ -802,7 +802,7 @@ describe("WebSocket submit", () => {
       socket.send({ type: "submit", id: 67, pane_id: agent.pane, text: "이 스킬 pr 올려줘", payload: "이 스킬 pr 올려줘", clear_draft: "ㅔ" });
       expect(await socket.result(67)).toMatchObject({ ok: true, pane_id: agent.pane });
       expect(sendKeys).toHaveBeenCalledWith(agent.pane, ["ctrl+k", "ctrl+u"], undefined, expect.any(Function));
-      expect(prompt).toHaveBeenCalledWith(agent.pane, "이 스킬 pr 올려줘");
+      expect(prompt).toHaveBeenCalledWith(agent.pane, "이 스킬 pr 올려줘", undefined, expect.any(Function));
       expect(order).toEqual(["ctrl+k ctrl+u", "prompt"]);
       expect(sendText).not.toHaveBeenCalled();
     } finally {
@@ -1005,7 +1005,7 @@ describe("WebSocket submit", () => {
       expect(await socket.result(41)).toMatchObject({ ok: true });
       // each Esc asks the sender's right again right before herdr is written to
       expect(sendKeys.mock.calls).toEqual([[agent.pane, ["esc"], undefined, expect.any(Function)], [agent.pane, ["esc"], undefined, expect.any(Function)]]);
-      expect(prompt).toHaveBeenLastCalledWith(agent.pane, "second message");
+      expect(prompt).toHaveBeenLastCalledWith(agent.pane, "second message", undefined, expect.any(Function));
       expect(sendText).not.toHaveBeenCalled();
     } finally {
       sendKeys.mockRestore();
@@ -1158,7 +1158,7 @@ describe("WebSocket submit", () => {
     try {
       socket.send({ type: "submit", id: 30, pane_id: codex.pane, text: "follow up", payload: "unused" });
       expect(await socket.result(30)).toMatchObject({ ok: true, pane_id: codex.pane });
-      expect(prompt).toHaveBeenCalledWith(codex.pane, "follow up");
+      expect(prompt).toHaveBeenCalledWith(codex.pane, "follow up", undefined, expect.any(Function));
       expect(read).not.toHaveBeenCalled();
     } finally {
       prompt.mockRestore();
@@ -1897,6 +1897,44 @@ describe("typing without terminal attach, at the edges", () => {
     } finally {
       gate.resolve();
       prompt.mockRestore();
+      sender.close();
+      keeper.close();
+      bare.stop();
+    }
+  }, 30_000);
+
+  it("writes no chat message for a sender that switched to observe while herdr was being reached", async () => {
+    const bare = createServer({ port: 0, stateDir: join(root, "observe-chat-prompt"), terminalAttach: false });
+    const sender = await Socket.connect(bare.port);
+    const keeper = await Socket.connect(bare.port);
+    const gate = deferred();
+    const entered = deferred();
+    const message = "a chat message held while herdr is reached";
+    const screen = mockClaudeInput(agent.pane, claudeInputScreen("\u276f\u00a0"));
+    const originalPrompt = herdr.agentPrompt;
+    // every check before the RPC has passed; the sender switches to watching before herdr is written to
+    const prompt = spyOn(herdr, "agentPrompt").mockImplementation(async (target, text, socketPath, guard) => {
+      if (target === agent.pane && text === message) { entered.resolve(); await gate.promise; }
+      return originalPrompt(target, text, socketPath, guard);
+    });
+    try {
+      for (const socket of [keeper, sender]) await attached(socket, agent.pane);
+      const from = chunks(agent).length;
+      sender.send({ type: "submit", id: 1178, pane_id: agent.pane, text: message, payload: message });
+      await entered.promise;
+      sender.send({ type: "role", mode: "observe" });
+      await sender.waitFor((frame) => frame.type === "role-ack" && frame.mode === "observe");
+      gate.resolve();
+      expect(await sender.result(1178)).toMatchObject({ ok: false, code: "read_only" });
+      keeper.send({ type: "submit", id: 1179, pane_id: agent.pane, text: "after", payload: "after", typed: true });
+      expect(await keeper.result(1179)).toMatchObject({ ok: true });
+      await received(agent, from, 1);
+      expect(typed(agent, from)).toBe("after\r");
+    } finally {
+      gate.resolve();
+      prompt.mockRestore();
+      screen.scroll.mockRestore();
+      screen.read.mockRestore();
       sender.close();
       keeper.close();
       bare.stop();

@@ -294,6 +294,12 @@ export function createSubmitText({ options, lastTyped, attachments, terminalAtta
         throw new HerdrError("submit_timeout", "the message waited too long behind earlier input; nothing was typed");
       }
     };
+    // agent.prompt asks the sender once more right before herdr is written to: it can be revoked, or switch
+    // to watching, while the connection opens. Its refusal sends nothing, and nothing is typed instead.
+    let refused: unknown;
+    const mayType = (): boolean => {
+      try { authorize(); return true; } catch (error) { refused = error; return false; }
+    };
     const typed = Date.now() - (lastTyped.get(paneId) ?? 0);
     // fixed wait: herdr holds a lone ESC typed through the attach pty and says nothing when it lets go
     if (typed < TYPED_SETTLE_MS) await Bun.sleep(TYPED_SETTLE_MS - typed);
@@ -491,7 +497,7 @@ export function createSubmitText({ options, lastTyped, attachments, terminalAtta
         const watch = pane ? startOpenCodeWatch(pane, command, options.openCodeStateDir) : null;
         try {
           inTime();
-          const delivery = agentPrompt(paneId, closeMention(sent));
+          const delivery = agentPrompt(paneId, closeMention(sent), undefined, mayType);
           // which agent process got it, read alongside the delivery for the outcome's row, never before it
           bindCommandProcess(paneId, command, seen);
           await delivery;
@@ -500,6 +506,7 @@ export function createSubmitText({ options, lastTyped, attachments, terminalAtta
           return;
         } catch (error) {
           watch?.cancel();
+          if (refused !== undefined) throw refused;
           if (!(error instanceof HerdrError)) throw error;
           if (clearDraft !== undefined || sendAnyway) throw error;
           const queuedOnly = error.code === "agent_blocked" && await blockedOnlyByCodexQueue(paneId);
@@ -509,12 +516,6 @@ export function createSubmitText({ options, lastTyped, attachments, terminalAtta
       // one long line from the input line: herdr's agent.prompt pastes it in the agent's own paste mode and
       // returns once its Enter followed (TYPED_LINE_MAX). An agent waiting for an answer, or none, is typed into.
       if (fromTerminal && !sentText.includes("\n") && sentText.length > TYPED_LINE_MAX) {
-        // the sender is asked once more right before herdr is written to: it can be revoked, or switch to
-        // watching, while the connection opens. Its refusal sends nothing, and nothing is typed instead.
-        let refused: unknown;
-        const mayType = (): boolean => {
-          try { authorize(); return true; } catch (error) { refused = error; return false; }
-        };
         try {
           inTime();
           await agentPrompt(paneId, closeMention(sentText), undefined, mayType);
