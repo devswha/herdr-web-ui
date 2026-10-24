@@ -13,6 +13,7 @@ import java.security.Signature;
 import java.security.interfaces.ECPrivateKey;
 import java.security.interfaces.ECPublicKey;
 import java.security.spec.ECGenParameterSpec;
+import java.security.spec.ECFieldFp;
 import java.security.spec.ECParameterSpec;
 import java.security.spec.ECPoint;
 import java.security.spec.ECPrivateKeySpec;
@@ -46,24 +47,35 @@ final class PushKeys {
     static PushKeys decode(String scalar, String point, String auth) throws GeneralSecurityException {
         if (scalar == null && point == null && auth == null) return null;
         if (scalar == null || point == null || auth == null) throw new Damaged();
+        PushKeys keys;
         try {
             Base64.Decoder decoder = Base64.getDecoder();
-            PushKeys keys = new PushKeys(decoder.decode(scalar), decoder.decode(point), decoder.decode(auth));
-            if (keys.privateScalar.length != 32 || keys.publicPoint.length != 65 || keys.auth.length != 16) throw new Damaged();
-            BigInteger value = new BigInteger(1, keys.privateScalar);
-            if (value.signum() == 0 || value.compareTo(p256().getOrder()) >= 0) throw new Damaged();
-            // Verify that the stored halves belong together, not merely that each parses.
-            Signature proof = Signature.getInstance("SHA256withECDSA");
-            proof.initSign(keys.privateKey());
-            proof.update(new byte[] { 0 });
-            byte[] signature = proof.sign();
-            proof.initVerify(publicKey(keys.publicPoint));
-            proof.update(new byte[] { 0 });
-            if (!proof.verify(signature)) throw new Damaged();
-            return keys;
-        } catch (IllegalArgumentException | GeneralSecurityException damaged) {
+            keys = new PushKeys(decoder.decode(scalar), decoder.decode(point), decoder.decode(auth));
+        } catch (IllegalArgumentException damaged) {
             throw new Damaged();
         }
+        if (keys.privateScalar.length != 32 || keys.publicPoint.length != 65 || keys.auth.length != 16
+            || keys.publicPoint[0] != 4) throw new Damaged();
+        ECParameterSpec parameters = p256();
+        BigInteger value = new BigInteger(1, keys.privateScalar);
+        if (value.signum() == 0 || value.compareTo(parameters.getOrder()) >= 0) throw new Damaged();
+        // Prove malformed point bytes directly: providers need not reject them at key import.
+        BigInteger x = new BigInteger(1, Arrays.copyOfRange(keys.publicPoint, 1, 33));
+        BigInteger y = new BigInteger(1, Arrays.copyOfRange(keys.publicPoint, 33, 65));
+        BigInteger prime = ((ECFieldFp) parameters.getCurve().getField()).getP();
+        BigInteger right = x.multiply(x).multiply(x).add(parameters.getCurve().getA().multiply(x))
+            .add(parameters.getCurve().getB()).mod(prime);
+        if (x.compareTo(prime) >= 0 || y.compareTo(prime) >= 0
+            || !y.multiply(y).mod(prime).equals(right)) throw new Damaged();
+        // Only a completed check returning false proves that otherwise valid halves mismatch.
+        Signature proof = Signature.getInstance("SHA256withECDSA");
+        proof.initSign(keys.privateKey());
+        proof.update(new byte[] { 0 });
+        byte[] signature = proof.sign();
+        proof.initVerify(publicKey(keys.publicPoint));
+        proof.update(new byte[] { 0 });
+        if (!proof.verify(signature)) throw new Damaged();
+        return keys;
     }
 
     static PushKeys generate() throws GeneralSecurityException {
