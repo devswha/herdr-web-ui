@@ -3,7 +3,8 @@
 Status: Phase 1 step 2 built for iOS (checked in a simulator) and Android (checked in an emulator),
 2026-10-19. To run them, see [The app (app/)](#the-app-app) and
 [The Android app](#the-android-app). Step 3, the push relay, is built in
-[`push-relay/`](../push-relay/README.md) with its tests, 2026-10-23, and not deployed yet.
+[`push-relay/`](../push-relay/README.md) with its tests, 2026-10-23, for iOS (APNs) and Android
+(FCM), and not deployed yet.
 
 Ovis ships as a store app for iOS first, Android later. The goal is reach: the app is
 found in the App Store and installs in one tap, where the web app needs "Add to Home Screen". It
@@ -24,7 +25,7 @@ also opens the door to features a home-screen web app cannot have.
 
 ```
 PC: Ovis server ──UI, API, WebSocket──▶ app WebView (the same client as the browser)
-PC: server/push.ts ──encrypted push──▶ relay (Cloudflare Worker) ──▶ APNs ──▶ app
+PC: server/push.ts ──encrypted push──▶ relay (Cloudflare Worker) ──▶ APNs (iOS) / FCM (Android) ──▶ app
 ```
 
 ### The app
@@ -65,8 +66,15 @@ choices) and changes little:
 The relay's code lives in this repo next to `telemetry/`, in
 [`push-relay/`](../push-relay/README.md), open so anyone can run their own, and keeps no logs,
 like the telemetry Worker. It answers at `push.ovis.sh`. Its APNs key is a secret of the
-project's Cloudflare account (`APNS_KEY`). Android (FCM) gets a second route in the same Worker
-later.
+project's Cloudflare account (`APNS_KEY`).
+
+Android takes the same steps through Firebase Cloud Messaging, in the same Worker: the app
+registers its FCM token (`{ "service": "fcm", "token", "vapid_key" }`), the relay sends the
+ciphertext in an FCM data message, which the app's
+[`ovis-push`](../app/android/ovis-push/README.md) module decrypts, and FCM calling a token gone or
+invalid becomes a 410 as well. One service calling a token gone never deletes the other's endpoints. The
+relay's FCM credentials are a service account key of the app's Firebase project, the secret
+`FCM_SERVICE_ACCOUNT`; without it the relay takes no FCM token.
 
 ## Phase 1: first store release
 
@@ -87,8 +95,11 @@ later.
 
 - Live Activity for a running agent, home-screen widgets (both need Swift, and pushes through
   the same relay).
-- The FCM route for Android pushes. The Android app itself exists already (see
-  [The Android app](#the-android-app)): the maintainer tests on a Galaxy, not an iPhone.
+- Android pushes. The relay's FCM route and the app's receiving module
+  ([`ovis-push`](../app/android/ovis-push/README.md)) are built; they wait for the client's native
+  subscribe (step 4), the Firebase project and the relay's deploy. The Android app itself exists
+  already (see [The Android app](#the-android-app)): the maintainer tests on a Galaxy, not an
+  iPhone.
 - Speed: measure what is slow before changing anything; bundling the UI in the app is off the
   table while the PC serves it.
 
