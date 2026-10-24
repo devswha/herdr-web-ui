@@ -1756,8 +1756,11 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   after a middle dot, the step in progress in the agent's own words (`.bg-tasks-current`, #1040):
   one line, cut with an ellipsis past `16em` beside a mouse and `8em` on a narrow card, whole in
   the button's name and title. The figures and the task count are never cut for it, and on a card
-  narrower than the row's controls the step gives its room back before the add button, the model
-  pill or the round button do (a one-line clamp, so its narrowest size is one glyph); with no step
+  narrower than the row's controls the step gives its room back before the add button or the round
+  button do (a one-line clamp, so its narrowest size is one glyph). The model pill beside the chip
+  steps out before the step does, as it does for the chip's other words: on a phone a long step and
+  a task count leave it no room, because the step is what the phone would otherwise open the plan
+  to see; with no step
   in progress, between steps or once every step is done, the chip shows the figures alone and
   infers nothing from them. Running background tasks follow after a hairline as their glyph and
   number. The chip keeps the working tint while a step or a task is left, and goes quiet once every

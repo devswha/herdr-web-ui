@@ -209,8 +209,8 @@ try {
     const pages: Array<{ page: Page; what: string }> = [];
     for (const [context, what, theme] of [[desktop, "1280px dark", "dark"], [phone, "390px light", "light"]] as const) {
       await context.addInitScript(({ paneId, theme }) => {
-        localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", theme }));
-        localStorage.setItem(`herdr-web-ui:view:${paneId}`, "chat");
+        localStorage.setItem("ovis:settings", JSON.stringify({ language: "en", theme }));
+        localStorage.setItem(`ovis:view:${paneId}`, "chat");
       }, { paneId, theme });
       const page = await context.newPage();
       page.setDefaultTimeout(20_000);

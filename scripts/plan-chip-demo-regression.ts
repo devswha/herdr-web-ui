@@ -254,8 +254,8 @@ async function scenario(browser: Browser, width: number, theme: "dark" | "light"
   try {
     await context.addInitScript(holdTurn);
     await context.addInitScript(([language, theme, pane]) => {
-      localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language, theme }));
-      localStorage.setItem(`herdr-web-ui:view:${pane}`, "chat");
+      localStorage.setItem("ovis:settings", JSON.stringify({ language, theme }));
+      localStorage.setItem(`ovis:view:${pane}`, "chat");
     }, [language, theme, PANE] as const);
     const page = await context.newPage();
     const errors: string[] = [];
