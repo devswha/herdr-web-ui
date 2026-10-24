@@ -854,6 +854,9 @@ export class HerdrSocket {
       // a liveness probe in flight is waited out: nothing is sent on a socket that may be dead
       if (!(await this.probeSettled(socket))) return NOT_TRANSMITTED;
       if (this.mode === "observe") return { ok: false, code: "read_only", message: "Observe connections cannot submit messages." };
+      // the wait ended before the snapshot said what this bridge takes: one that takes `submit` would get the
+      // message as raw typed input, past every check it makes before typing (#1591), so nothing is sent
+      if (!this.snapshotKnown) return NOT_TRANSMITTED;
       // hold is decided once the snapshot said what the bridge supports: one too old to hold queues it as before
       if (delivery === "hold" && !this.canHoldMessages()) delivery = "queue";
       if (delivery === "queue" && !this.canQueueMessages()) return { ok: false, code: "pending_input_unsupported", message: "Update this PC to queue messages." };
