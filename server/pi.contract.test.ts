@@ -181,10 +181,19 @@ it("resolves pi's context window from the agent dir pi reads its models from", a
   const previous = process.env["PI_CODING_AGENT_DIR"];
   process.env["PI_CODING_AGENT_DIR"] = agentDir;
   try {
-    // the window is read as the metadata is rebuilt, so a new answer carries it
+    // no pi process is identified here (the stand-in is not pi), and the session store is shared
+    // (PI_CODING_AGENT_SESSION_DIR), not the one inside that agent dir: its catalogs are no pane's
     writeFileSync(transcript, turns("Check chat twice", "Answer two"));
+    expect((await read()).metadata?.context).toEqual({ used: 35, window: null });
+    // the store inside the bridge's own agent dir: the session was written by that profile
+    const owner = dirname(sessionDir);
+    writeFileSync(join(owner, "models.json"), JSON.stringify({ providers: { test: { models: [{ id: "pi-contract-model", contextWindow: 200_000 }] } } }));
+    process.env["PI_CODING_AGENT_DIR"] = owner;
+    // the window is read as the metadata is rebuilt, so a new answer carries it
+    writeFileSync(transcript, turns("Check chat three times", "Answer three"));
     const withWindow = await read();
     expect(withWindow.metadata?.context).toEqual({ used: 35, window: 200_000 });
+    rmSync(join(owner, "models.json"));
   } finally {
     if (previous === undefined) delete process.env["PI_CODING_AGENT_DIR"]; else process.env["PI_CODING_AGENT_DIR"] = previous;
     forgetPiModels();

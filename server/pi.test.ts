@@ -452,7 +452,8 @@ it("keeps a custom Pi profile scoped to its current process and canonical store"
   try {
     const defaultSession = session("default-profile");
     const defaultAgent = { agent: "pi", agent_session: { agent: "pi", source: "herdr:pi", kind: "path", value: defaultSession } } as never;
-    expect(await piTranscriptPath("pane", store, { agent: defaultAgent, processes, environOf: () => null, home: root })).toEqual({ path: defaultSession, agentDir: piAgentDir() });
+    // an environment that cannot be read names no profile: the bridge's store here is not its agent dir's own
+    expect(await piTranscriptPath("pane", store, { agent: defaultAgent, processes, environOf: () => null, home: root })).toEqual({ path: defaultSession, agentDir: null });
     expect(await piTranscriptPath("pane", undefined, { agent, processes, environOf, home: root })).toEqual({ path: target, agentDir: profile });
     const ompAgent = { agent: "pi", agent_session: { agent: "omp", source: "herdr:omp", kind: "path", value: target } } as never;
     expect(await piTranscriptPath("pane", undefined, { agent: ompAgent, processes, environOf, home: root })).toBeNull();
@@ -537,12 +538,22 @@ it("keeps native default-store reports when process argv is unavailable", async 
   const processInfo = [{ pid: 802, name: "pi" }];
   const reported = (value: string) => ({ agent: "pi", agent_session: { agent: "pi", source: "herdr:pi", kind: "path", value } }) as never;
   const options = { processes: processInfo, argvOf: () => null, environOf: () => null, home: root };
+  // the store is shared (PI_CODING_AGENT_SESSION_DIR), not the one inside the bridge's agent dir: no catalog is the pane's
   expect(await piTranscriptPath("pane", store, {
     ...options, agent: reported(target),
-  })).toEqual({ path: target, agentDir: piAgentDir() });
+  })).toEqual({ path: target, agentDir: null });
   expect(await piTranscriptPath("pane", store, {
     ...options, agent: reported(customTarget),
   })).toBeNull();
+  // the store inside the bridge's own agent dir: the session was written by that profile
+  const old = process.env["PI_CODING_AGENT_DIR"];
+  process.env["PI_CODING_AGENT_DIR"] = root;
+  try {
+    expect(await piTranscriptPath("pane", store, { ...options, agent: reported(target) })).toEqual({ path: target, agentDir: piAgentDir() });
+    expect(await piTranscriptPath("pane", store, { ...options, processes: [], agent: reported(target) })).toEqual({ path: target, agentDir: root });
+  } finally {
+    if (old === undefined) delete process.env["PI_CODING_AGENT_DIR"]; else process.env["PI_CODING_AGENT_DIR"] = old;
+  }
 });
 
 it("rejects Pi session-dir command-line overrides it cannot verify", async () => {
