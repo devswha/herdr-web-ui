@@ -34,7 +34,7 @@
  */
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { chmodSync, createWriteStream, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, createWriteStream, existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { connect, createServer } from "node:net";
 import { availableParallelism, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -345,13 +345,78 @@ export function lock(port = DEFAULT_LOCK_PORT, pid = process.pid, checkout?: str
 }
 
 export type SlotHolder = Holder & { port: number };
+type MarkerOwner = { pid: number; checkout: string };
+
+/**
+ * Claims `marker` for this run, or names the live run that holds it. A marker a dead run left, or one
+ * an older check cut short, is taken over only by the run holding `<marker>.reclaim`, which reads the
+ * marker again under it: runs on other CHECK_LOCK_PORT bases are not serialized by this run's
+ * admission port. A marker that is gone is created again, never removed. Both files are written beside
+ * and linked into place, so a reader never sees one half written. One window is left: a reclaimer that
+ * dies holding `.reclaim` while two runs on other bases start at once can let both of them claim.
+ */
+function claimMarker(marker: string, pid: number, checkout: string, alive: (pid: number) => boolean): MarkerOwner | null {
+  const create = (path: string): boolean => {
+    const draft = `${path}.${pid}.draft`;
+    try {
+      writeFileSync(draft, JSON.stringify({ pid, checkout }), { mode: 0o600 });
+      linkSync(draft, path);
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
+      throw error;
+    } finally { rmSync(draft, { force: true }); }
+  };
+  // who a file names: gone, a live run, or a dead run (a write cut short counts as dead). A file that
+  // cannot be read may be a live holder's, so that error is not swallowed
+  const state = (path: string): { gone: true } | { owner: MarkerOwner } | { dead: true } => {
+    let text: string;
+    try { text = readFileSync(path, "utf8"); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return { gone: true };
+      throw error;
+    }
+    let owner: MarkerOwner;
+    try { owner = JSON.parse(text) as MarkerOwner; } catch { return { dead: true }; }
+    if (owner === null || typeof owner !== "object" || !Number.isSafeInteger(owner.pid) || owner.pid <= 0) throw new Error(`invalid check lock owner: ${path}`);
+    return alive(owner.pid) ? { owner } : { dead: true };
+  };
+  const reclaim = `${marker}.reclaim`;
+  // other runs claiming and releasing at the same moment can make one attempt come back empty-handed
+  for (let attempt = 0; attempt < 5; attempt++) {
+    if (create(marker)) return null;
+    const found = state(marker);
+    if ("owner" in found) return found.owner;
+    if ("gone" in found) continue;
+    if (!create(reclaim)) {
+      const reclaimer = state(reclaim);
+      if ("owner" in reclaimer) return reclaimer.owner;
+      // a reclaimer that died mid-takeover
+      if ("dead" in reclaimer) rmSync(reclaim, { force: true });
+      continue;
+    }
+    try {
+      const again = state(marker);
+      if ("owner" in again) return again.owner;
+      if ("gone" in again) continue;
+      // dead under the reclaim: no other run can replace it until it is removed
+      rmSync(marker, { force: true });
+      if (create(marker)) return null;
+      const winner = state(marker);
+      if ("owner" in winner) return winner.owner;
+    } finally {
+      rmSync(reclaim, { force: true });
+    }
+  }
+  throw new Error(`could not claim ${marker}`);
+}
 
 /**
  * Admission is serialized on the port after the slot range. While holding it, claim explicit
  * resources and take a candidate slot, then scan ALL slots again: an earlier holder may have
  * turned over while we asked it. Zero slots claims only resources (fast needs no herdr slot).
- * The admission port also serializes dead-pid marker reclamation, so two reclaimers cannot
- * unlink each other's newly acquired marker. A busy admission port refuses rather than waits.
+ * Taking over a dead run's marker is serialized by claimMarker's reclaim file, not by this port, since
+ * runs on other CHECK_LOCK_PORT bases do not share it. A busy admission port refuses rather than waits.
  */
 export async function acquire(
   { slots, checkout, base = DEFAULT_LOCK_PORT, pid = process.pid, scan = MAX_RUNS_LIMIT, resources = [], reports = [], checkoutLock }: { slots: number; checkout: string; base?: number; pid?: number; scan?: number; resources?: readonly string[]; reports?: readonly string[]; checkoutLock?: string },
@@ -378,31 +443,17 @@ export async function acquire(
       const canonical = isDir ? realpathSync(absolute) : join(realpathSync(dirname(absolute)), basename(absolute));
       const marker = isDir ? join(canonical, ".check-lock") : `${canonical}.check-lock`;
       if (markers.includes(marker)) continue;
-      if (existsSync(marker)) {
-        // a marker that cannot be read may be a live holder's: only one that was read and is not
-        // JSON (a write cut short) is taken over
-        const text = readFileSync(marker, "utf8");
-        let owner: { pid: number; checkout: string };
-        try {
-          owner = JSON.parse(text) as { pid: number; checkout: string };
-        } catch {
-          rmSync(marker, { force: true });
-          writeFileSync(marker, JSON.stringify({ pid, checkout }), { flag: "wx", mode: 0o600 });
-          markers.push(marker);
-          continue;
-        }
-        if (owner === null || typeof owner !== "object" || !Number.isSafeInteger(owner.pid) || owner.pid <= 0) throw new Error(`invalid check lock owner: ${marker}`);
-        let dead = false;
-        try { process.kill(owner.pid, 0); }
+      const owner = claimMarker(marker, pid, checkout, (ownerPid) => {
+        try { process.kill(ownerPid, 0); return true; }
         catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
-          dead = true;
+          return false;
         }
-        if (!dead && checkoutClaim) return { refused: "same-checkout", holders: [{ port: admissionPort, heldBy: owner.pid, checkout: owner.checkout }] };
-        if (!dead) return { refused: "resource", resource: canonical, holders: [{ port: admissionPort, heldBy: owner.pid, checkout: owner.checkout }] };
-        rmSync(marker);
+      });
+      if (owner) {
+        if (checkoutClaim) return { refused: "same-checkout", holders: [{ port: admissionPort, heldBy: owner.pid, checkout: owner.checkout }] };
+        return { refused: "resource", resource: canonical, holders: [{ port: admissionPort, heldBy: owner.pid, checkout: owner.checkout }] };
       }
-      writeFileSync(marker, JSON.stringify({ pid, checkout }), { flag: "wx", mode: 0o600 });
       markers.push(marker);
     }
     for (let index = 0; index < slots; index++) {

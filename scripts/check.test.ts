@@ -315,6 +315,87 @@ describe("slots", () => {
     } finally { release(result); }
   });
 
+  it("refuses a stale checkout marker while a live process holds its reclaim claim", async () => {
+    const base = await freeRange(3);
+    const checkoutLock = join(scratch(), "checkout.lock");
+    const finished = spawnSync(process.execPath, ["-e", "console.log(process.pid)"], { encoding: "utf8" });
+    expect(finished.status).toBe(0);
+    const marker = `${checkoutLock}.check-lock`;
+    writeFileSync(marker, JSON.stringify({ pid: Number(finished.stdout.trim()), checkout: "/dead" }));
+    writeFileSync(`${marker}.reclaim`, JSON.stringify({ pid: process.pid, checkout: "/reclaimer" }));
+    const result = await acquire({ slots: 1, scan: 3, base, checkout: "/mine", checkoutLock });
+    try {
+      expect(result).toEqual({ refused: "same-checkout", holders: [{ port: base + 3, heldBy: process.pid, checkout: "/reclaimer" }] });
+      expect(readFileSync(marker, "utf8")).toContain('"/dead"');
+    } finally { release(result); }
+  });
+
+  it("clears a dead reclaim claim and takes over the stale checkout marker", async () => {
+    const base = await freeRange(3);
+    const checkoutLock = join(scratch(), "checkout.lock");
+    const finished = spawnSync(process.execPath, ["-e", "console.log(process.pid)"], { encoding: "utf8" });
+    expect(finished.status).toBe(0);
+    const marker = `${checkoutLock}.check-lock`;
+    writeFileSync(marker, JSON.stringify({ pid: Number(finished.stdout.trim()), checkout: "/dead" }));
+    writeFileSync(`${marker}.reclaim`, JSON.stringify({ pid: Number(finished.stdout.trim()), checkout: "/dead-reclaimer" }));
+    const result = await acquire({ slots: 1, scan: 3, base, checkout: "/mine", checkoutLock });
+    try {
+      expect("release" in result).toBe(true);
+      expect(JSON.parse(readFileSync(marker, "utf8"))).toEqual({ pid: process.pid, checkout: "/mine" });
+      expect(existsSync(`${marker}.reclaim`)).toBe(false);
+    } finally { release(result); }
+  });
+
+  it("admits exactly one cross-base contender reclaiming a stale checkout marker", async () => {
+    const checkoutLock = join(scratch(), "checkout.lock");
+    const marker = `${checkoutLock}.check-lock`;
+    const finished = spawnSync(process.execPath, ["-e", "console.log(process.pid)"], { encoding: "utf8" });
+    expect(finished.status).toBe(0);
+    const script = fileURLToPath(new URL("./check.ts", import.meta.url));
+    for (let round = 0; round < 10; round++) {
+      writeFileSync(marker, JSON.stringify({ pid: Number(finished.stdout.trim()), checkout: "/dead" }));
+      const firstBase = await freeRange(3);
+      let secondBase = await freeRange(3);
+      while (Math.abs(firstBase - secondBase) <= 3) secondBase = await freeRange(3);
+      const bases = [firstBase, secondBase];
+      const childCode = `import { readFileSync } from "node:fs"; import { acquire } from ${JSON.stringify(script)}; console.log("READY"); await new Promise(resolve => process.stdin.once("data", resolve)); const result = await acquire({ slots: 1, scan: 3, base: Number(process.env.BASE), checkout: "/same", checkoutLock: process.env.CHECKOUT_LOCK }); console.log("RESULT " + ("release" in result ? "held " + process.pid + " " + readFileSync(process.env.CHECKOUT_LOCK + ".check-lock", "utf8") : result.refused)); if ("release" in result) { await new Promise(resolve => { process.stdin.once("data", resolve); process.stdin.once("end", resolve); }); result.release(); }`;
+      const children = bases.map((base) => Bun.spawn([process.execPath, "-e", childCode], {
+        env: { ...process.env, BASE: String(base), CHECKOUT_LOCK: checkoutLock },
+        stdin: "pipe",
+        stdout: "pipe",
+        stderr: "pipe",
+      }));
+      const output = children.map(() => "");
+      const readers = children.map((child) => child.stdout.getReader());
+      const ready = readers.map(async (reader, index) => {
+        while (!output[index]?.includes("READY")) {
+          const { value, done } = await reader.read();
+          if (done) throw new Error(`cross-base contender ${index} exited before ready`);
+          output[index] += new TextDecoder().decode(value);
+        }
+      });
+      await Promise.all(ready);
+      for (const child of children) child.stdin.write("GO");
+      // the winner holds until both have answered, so the loser always meets a live claim
+      const outcomes = await Promise.all(readers.map(async (reader, index) => {
+        while (!/RESULT .*\n/.test(output[index] ?? "")) {
+          const { value, done } = await within(reader.read(), 5_000, `cross-base contender ${index} gave no result in round ${round}`);
+          if (done) break;
+          output[index] += new TextDecoder().decode(value);
+        }
+        const result = /RESULT (.*)/.exec(output[index] ?? "")?.[1];
+        return result?.startsWith("held ") ? "held" : result;
+      }));
+      for (const child of children) { child.stdin.write("RELEASE"); child.stdin.end(); }
+      await Promise.all(children.map(async (child) => {
+        const stderr = await new Response(child.stderr).text();
+        expect(await within(child.exited, 5_000, `cross-base contender timed out in round ${round}`), stderr).toBe(0);
+      }));
+      // either contender may win; exactly one must
+      expect({ outcomes: outcomes.sort(), bases }).toEqual({ outcomes: ["held", "same-checkout"], bases });
+    }
+  });
+
   it("tells runners that share a loopback apart although they check out to one path", async () => {
     const base = await freeRange(3);
     const path = "/w/herdr-web-ui/herdr-web-ui";
