@@ -266,6 +266,26 @@ export function maxRuns(env: Record<string, string | undefined>, cores = availab
 }
 
 /**
+ * What a CI host says it can take, each over the workflow's own value: a self-hosted runner's launcher
+ * puts these in its containers' environment (scripts/self-hosted-runner/run.sh --env-file), which the
+ * workflow's expressions cannot read. Every runner of a host shares its slots, so the host, not a job,
+ * knows how many fit. Unset or empty leaves the workflow's value; the named variable's own check
+ * still applies.
+ */
+export const HOST_LIMITS = {
+  CHECK_HOST_MAX_RUNS: "CHECK_MAX_RUNS",
+  CHECK_HOST_TEST_SHARDS: "HERDR_TEST_SHARDS",
+  CHECK_HOST_BROWSER_WORKERS: "BROWSER_WORKERS",
+  CHECK_HOST_UNIT_WORKERS: "UNIT_TEST_WORKERS",
+} as const;
+export function applyHostLimits(env: Record<string, string | undefined>): void {
+  for (const [host, name] of Object.entries(HOST_LIMITS)) {
+    const value = env[host];
+    if (value) env[name] = value;
+  }
+}
+
+/**
  * What a run calls its checkout to the runs that share its slots. A self-hosted CI runner shares its
  * loopback with the other runner containers of its PC (scripts/self-hosted-runner/run.sh), and every
  * one of them checks out to the same path, so there the runner's name (RUNNER_NAME, set by the
@@ -513,6 +533,7 @@ export async function main(groupSeams: GroupSeams & {
   probeSession?: (socket: string) => Promise<void>;
   scheduleDrainTimeout?: (expire: () => void, ms: number) => () => void;
 } = {}): Promise<void> {
+  applyHostLimits(process.env);
   let todo: ReturnType<typeof plan>;
   const args = process.argv.slice(2);
   try { todo = plan(args); } catch (error) { console.error((error as Error).message); process.exit(2); }

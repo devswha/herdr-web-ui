@@ -2,7 +2,7 @@
 # Host launcher: keeps N ephemeral runner containers alive, one job per container.
 #
 # Usage: scripts/self-hosted-runner/run.sh [--repo OWNER/NAME] [--count N] [--labels self-hosted-ovis]
-#                                          [--build] [--once]
+#                                          [--env-file FILE] [--build] [--once]
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -11,6 +11,7 @@ IMAGE="herdr-ci-runner:local"
 REPO=""
 COUNT=1
 LABELS="self-hosted-ovis"
+ENV_FILE=""
 BUILD=0
 ONCE=0
 
@@ -23,6 +24,7 @@ while [ $# -gt 0 ]; do
     --repo) REPO="${2:?--repo needs a value}"; shift 2 ;;
     --count) COUNT="${2:?--count needs a value}"; shift 2 ;;
     --labels) LABELS="${2:?--labels needs a value}"; shift 2 ;;
+    --env-file) ENV_FILE="${2:?--env-file needs a value}"; shift 2 ;;
     --build) BUILD=1; shift ;;
     --once) ONCE=1; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -31,6 +33,24 @@ while [ $# -gt 0 ]; do
 done
 
 case "$COUNT" in ''|*[!0-9]*|0) echo "--count must be a positive integer" >&2; exit 2 ;; esac
+# What this host can take (CHECK_HOST_* in scripts/check.ts), for every runner container: read now,
+# so a missing file stops the launcher instead of every container failing to start.
+ENV_ARGS=()
+if [ -n "$ENV_FILE" ]; then
+  [ -f "$ENV_FILE" ] && [ -r "$ENV_FILE" ] || { echo "--env-file: cannot read $ENV_FILE" >&2; exit 2; }
+  # Only CHECK_HOST_* numbers: docker copies a bare NAME line from this launcher's own environment
+  # (GH_TOKEN, say) into every container, where any job could read it. A refused line is named by its
+  # number only: its value may be a credential, and stderr ends up in the journal.
+  status=0
+  bad="$(grep -nvE '^[[:space:]]*(#.*)?$|^CHECK_HOST_(MAX_RUNS|TEST_SHARDS|BROWSER_WORKERS|UNIT_WORKERS)=[0-9]+$' "$ENV_FILE")" || status=$?
+  case "$status" in
+    0) echo "--env-file: $ENV_FILE may hold only CHECK_HOST_*=<number> lines; refused line(s): $(printf '%s\n' "$bad" | cut -d: -f1 | paste -sd, -)" >&2
+       exit 2 ;;
+    1) ;; # every line is allowed
+    *) echo "--env-file: could not read $ENV_FILE to check it" >&2; exit 2 ;;
+  esac
+  ENV_ARGS=(--env-file "$ENV_FILE")
+fi
 
 if [ -z "$REPO" ]; then
   REPO="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
@@ -93,6 +113,7 @@ slot_loop() {
       -e RUNNER_URL="https://github.com/$REPO" \
       -e RUNNER_NAME="$name" \
       -e RUNNER_LABELS="$LABELS" \
+      ${ENV_ARGS[@]+"${ENV_ARGS[@]}"} \
       "$IMAGE"; then
       container_status=0
     else

@@ -391,7 +391,9 @@ it("answers a shell SIGKILL does not end within the bound, and reaps it once it 
   } finally {
     stuck = false;
     kill.mockRestore();
-    try { realKill(pid, "SIGKILL"); } catch { /* reaped */ }
+    // pid stays 0 when the shell never wrote its pid file, and kill(0) would end this test's own
+    // process group: every test file of the run beside it, with no failure reported
+    if (pid > 0) try { realKill(pid, "SIGKILL"); } catch { /* reaped */ }
   }
 });
 

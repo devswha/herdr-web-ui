@@ -99,6 +99,7 @@ function start(host: Host, options: Omit<PtySessionOptions, "onData" | "onExit">
     },
     onExit: () => {},
   });
+  assert.equal(session.host, host, `${host}: PTY host fell back`);
   const until = (label: string, check: (output: string) => boolean, limitMs = 15_000) => new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => { waiters.delete(test); reject(new Error(`${host}: no ${label} in ${limitMs} ms`)); }, limitMs);
     const test = () => {

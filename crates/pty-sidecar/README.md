@@ -16,16 +16,50 @@ is killed with it (`PR_SET_PDEATHSIG`), and the rest of the group gets the pty's
 command exits, its output is read until EOF, 200 ms of quiet or 2 s; output paused then is held for
 up to 15 s.
 
-The server uses it only when `OVIS_PTY_SIDECAR=rust` is set; otherwise, on Windows, or when the
-binary is missing, `PtySession` runs the Node sidecar as before (`server/pty/host.ts`).
+## Turning it on
+
+The Node sidecar stays the default. The server runs this host instead on Linux and macOS when
+`OVIS_PTY_SIDECAR=rust` is set and the binary passes a check (`server/pty/host.ts`):
 
 ```bash
 cargo build --release --manifest-path crates/pty-sidecar/Cargo.toml
 OVIS_PTY_SIDECAR=rust bun run server
 ```
 
-`OVIS_PTY_SIDECAR_BIN` points at a binary elsewhere; the default is
-`crates/pty-sidecar/target/release/ovis-pty-sidecar`.
+Each release ships this host, and the plugin's build, every update installed from the app and
+`install.sh` put the binary for the PC in `bin/ovis-pty-sidecar` beside the server, with a record of
+its SHA-256 (`scripts/pty-sidecar.ts`). The server takes that binary while its record vouches for it,
+else `crates/pty-sidecar/target/release/ovis-pty-sidecar`. So for the app installed as a herdr
+plugin, turning it on takes one line in the `env` file in the directory that
+`herdr plugin config-dir devswha.ovis` prints, then a restart of the app:
+
+```
+OVIS_PTY_SIDECAR=rust
+```
+
+`OVIS_PTY_SIDECAR_BIN` points at a binary elsewhere (a leading `~/` is expanded, as that file is not a
+shell). Name the binary itself, or a wrapper that `exec`s it, so that the server sees how the host
+ended.
+
+## When it cannot run
+
+The server falls back to the Node sidecar, says why once on stderr, and keeps attaching:
+
+- **Before the first use** (at startup, beside the Node check), it runs the binary twice: with no
+  arguments it must print its usage line and exit 2, and `1 1 true` must exit 0. A missing file,
+  one that is not executable or not for this CPU, another program, a host that crashes or hangs
+  (3 s), or a PC where it cannot open a pty fails the check, and every attach uses Node.
+- **When it cannot be started** after passing (the file was removed or replaced), that attach
+  starts on Node.
+- **When it ends by a signal the server did not send** (a crash, the out-of-memory killer), that
+  attach ends as an attach does when its host stops, and every later one uses Node until the
+  server restarts.
+
+Other values of `OVIS_PTY_SIDECAR` than `rust` and `node` are reported once and mean Node.
+
+Whether a pane is attached or mirrored still depends on Node: a PC without Node mirrors its panes
+with this host turned on too. Windows and remote PCs always run the Node sidecar (or mirror); this
+host is not shipped in the remote PC bundles.
 
 ## Checks
 
@@ -36,5 +70,6 @@ OVIS_PTY_SIDECAR=rust bun test server/pty/session.test.ts  # the Node host's own
 bun scripts/pty-sidecar-bench.ts                           # startup, teardown, echo, throughput, memory, a real attach
 ```
 
-The Rust checks in `server/pty/host.test.ts` are skipped when the binary has not been built. CI does
-not build it.
+The Rust checks in `server/pty/host.test.ts` are skipped when the binary has not been built. CI's
+Rust PTY host job builds it on GitHub's Ubuntu image and runs `cargo test`, `host.test.ts` and
+`session.test.ts` on it; the other jobs run without it.
