@@ -74,7 +74,9 @@ namespace Ovis
                 CloseHandle(input);
                 if (!keepStderr) CloseHandle(error);
             }
-            var stream = new FileStream(new SafeFileHandle(read, true), FileAccess.Read);
+            var handle = new SafeFileHandle(read, true);
+            var stream = new FileStream(handle, FileAccess.Read);
+            var abandoned = false;
             var reader = new Thread(() =>
             {
                 try
@@ -85,19 +87,38 @@ namespace Ovis
                         while ((line = text.ReadLine()) != null)
                         {
                             line = line.Replace("\r", "");
-                            lock (lines) lines.Add(line);
-                            if (onLine != null) onLine(line);
+                            // under the same lock as abandoning: once the run has stopped waiting, no line reaches
+                            // its log or its caller
+                            lock (lines)
+                            {
+                                if (abandoned) break;
+                                lines.Add(line);
+                                if (onLine != null) onLine(line);
+                            }
                         }
                     }
                 }
-                catch (IOException) { } // closed below when a child the program left behind still holds the pipe
+                catch (IOException) { } // cancelled below when a child the program left behind still holds the pipe
                 catch (ObjectDisposedException) { }
+                catch (OperationCanceledException) { }
             }) { IsBackground = true };
             reader.Start();
             process.WaitForExit(Timeout.Infinite);
             // A background child the program started (the installer's server) can hold the pipe open for good:
             // wait for the rest of the output, but briefly.
-            if (!reader.Join(2000)) stream.Dispose();
+            if (!reader.Join(2000))
+            {
+                lock (lines) abandoned = true;
+                // the blocked read holds the handle open: cancel it, so the handle closes and the thread ends.
+                // Passed as the SafeFileHandle, which stays open for the call or throws when already closed, so a
+                // reused handle number is never cancelled.
+                try
+                {
+                    CancelIoEx(handle, IntPtr.Zero);
+                }
+                catch (ObjectDisposedException) { } // the reader finished and closed it meanwhile
+                stream.Dispose();
+            }
             var status = process.ExitCode;
             process.Dispose();
             lock (lines) return new RunResult { Status = status, Output = string.Join("\n", lines) };
@@ -250,6 +271,9 @@ namespace Ovis
             public IntPtr Process, Thread;
             public int ProcessId, ThreadId;
         }
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool CancelIoEx(SafeFileHandle handle, IntPtr overlapped);
 
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern bool CreatePipe(out IntPtr read, out IntPtr write, ref SecurityAttributes attributes, uint size);
