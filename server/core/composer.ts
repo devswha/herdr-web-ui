@@ -21,7 +21,7 @@ import { registry } from "../dialogs/registry.ts";
 import { CLAUDE_REWIND_OPEN_MESSAGE } from "../dialogs/claude.ts";
 import { type PendingIdentity, PendingInputError } from "../pending-input.ts";
 import { startOpenCodeWatch, openCodeSkillsToType, skillsNotAttached } from "../opencode-native.ts";
-import { herdrSkillAttachIo, typeWithSkills } from "../opencode-skill-attach.ts";
+import { herdrSkillAttachIo, type SkillAttachIo, typeWithSkills } from "../opencode-skill-attach.ts";
 
 const CLAUDE_INPUT_DRAFT_MESSAGE = "Claude Code's input box is not empty (a draft, bash mode, or a box that could not be read); send or clear it in the terminal, then send this message";
 
@@ -478,10 +478,17 @@ export function createSubmitText({ options, lastTyped, attachments, terminalAtta
           await revalidate();
           let typed = false;
           const allowed = (): boolean => {
-            try { inTime(); typed = true; return true; } catch { return false; }
+            try { inTime(); return true; } catch (error) { refused = error; return false; }
+          };
+          // typed once herdr let a write through: herdrRpc asks a write's guard once connected, right before it
+          const io = herdrSkillAttachIo(paneId);
+          const writes: SkillAttachIo = {
+            ...io,
+            sendText: (piece, guard) => io.sendText(piece, () => guard() && (typed = true)),
+            sendKeys: (keys, guard) => io.sendKeys(keys, () => guard() && (typed = true)),
           };
           try {
-            const typing = typeWithSkills(text, skills, allowed, herdrSkillAttachIo(paneId), revalidate);
+            const typing = typeWithSkills(text, skills, allowed, writes, revalidate);
             bindCommandProcess(paneId, command, seen);
             const { attached, missed, prompt } = await typing;
             // fixed wait: a TUI busy with the typing takes an Enter in the same chunk for a newline (SUBMIT_DELAY_MS)
@@ -495,7 +502,7 @@ export function createSubmitText({ options, lastTyped, attachments, terminalAtta
             return;
           } catch (error) {
             watch?.cancel();
-            if (!typed) throw error;
+            if (!typed) throw refused ?? error;
             throw new HerdrError("submit_partial", "Part of the message was typed into OpenCode's input, but sending was not confirmed. Your chat text stayed here. Check the terminal before sending again.");
           }
         }
