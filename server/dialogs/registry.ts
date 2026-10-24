@@ -11,8 +11,6 @@ export interface ReaderContext {
   omoOpen: OmoAsk[];
   sent: string | null;
   working: boolean;
-  /** Fallback cards are read only after the caller knows the pane is blocked. */
-  fallback?: boolean;
 }
 
 export function readersFor(agent: string): readonly DialogReader[] {

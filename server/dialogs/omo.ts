@@ -1,7 +1,7 @@
 import type { DialogReader, ReaderContext } from "./registry.ts";
 import { pickerPlan } from "./interaction-plan.ts";
 import { type InteractivePrompt } from "../../shared/protocol.ts";
-import { ANSI_RE, type AnswerStep, KEY, type OmoAsk, PI_MODEL_TAIL_RE, type ParsedPrompt, SOLID_RULE_RE, cleanLine, findLastIndex, finishPrompt, isDivider, joinWrapped, keySteps, navigationKeys, normalizeText, piModelRows, screenWidth, wrapped } from "./shared.ts";
+import { ANSI_RE, onePerPass, type AnswerStep, KEY, type OmoAsk, PI_MODEL_TAIL_RE, type ParsedPrompt, SOLID_RULE_RE, cleanLine, findLastIndex, finishPrompt, isDivider, joinWrapped, keySteps, navigationKeys, normalizeText, piModelRows, screenWidth, wrapped } from "./shared.ts";
 
 // OmO's ask_user_question form (omo 5.1): `Ask user · 30m`, a tab per question then Submit, and
 // under them the active question or, on the Submit tab, the review of the answers
@@ -548,11 +548,11 @@ export function sameText(shown: string, asked: string): boolean {
 // herdr names OmO pi while waiting, claude while its SDK child runs, or nothing in a shell.
 const agents = ["omo", "pi", "claude", ""] as const;
 
-function forms(screen: string, ctx: ReaderContext): (ParsedPrompt | null)[] {
+const forms = onePerPass((screen: string, ctx: ReaderContext): (ParsedPrompt | null)[] => {
   const read = (ask: OmoAsk | null, trusted: boolean) => [parseOmoQuestion(screen, ask, trusted), parseOmoTyping(screen, ask, trusted), parseOmoReview(screen, ask, trusted)];
   const matched = ctx.omoOpen.flatMap((ask) => read(ask, false)).filter((form) => form !== null);
   return ctx.omoOpen.length > 0 ? matched.length === 1 ? matched : [] : read(ctx.omoAsk, ctx.omoTrusted);
-}
+});
 
 export const readers: readonly DialogReader[] = [
   {

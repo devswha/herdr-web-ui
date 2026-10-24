@@ -15,9 +15,8 @@ import { registry } from "./dialogs/registry.ts";
 import { ANSI_RE, type AnswerStep, KEY, type OmoAsk, type ParsedPrompt, finishPrompt, keySteps, navigationKeys, parsedByPublicPrompt, publicPrompt } from "./dialogs/shared.ts";
 import { executeInteractionPlan } from "./dialogs/interaction-plan.ts";
 import { liveScreen, parsePrompt, promptTailIsActive } from "./dialogs/live.ts";
-import { codexModelListWaits } from "./dialogs/codex.ts";
 import { sameText } from "./dialogs/omo.ts";
-import { CLAUDE_EFFORT_GUARD_RE, INVISIBLE_CHAR_RE, claudeModelListWaits } from "./dialogs/claude.ts";
+import { INVISIBLE_CHAR_RE } from "./dialogs/claude.ts";
 import { parsePiDialog } from "./dialogs/pi.ts";
 import { parseFallbackPrompt } from "./dialogs/fallback.ts";
 import { SUGGESTION_READ_MS, claudeHeldIsGrey, claudeInputDraft, claudeRestoredDraft, parseClaudeSuggestion, viewportShowsLive } from "./claude-input.ts";
@@ -325,14 +324,6 @@ export function heldCandidate(paneId: string): string | null {
 }
 
 /**
- * Whether a model list of Claude Code's or Codex's holds the end of the screen, read or not. Enter
- * there saves a default, so nothing that ends in Enter is typed while one is open.
- */
-export function modelListWaits(agent: string, screen: string): boolean {
-  return registry.waits(agent, screen);
-}
-
-/**
  * Codex 0.156 holds the questions it asked with request_user_input_async in a queue above
  * its main prompt, collapsed to "? 2 questions / alt+↑ to answer", and herdr reports the
  * agent blocked meanwhile. Yet the main prompt has the input and takes a message (Codex
@@ -573,8 +564,8 @@ async function readPrompt(paneId: string, codexHome?: string, openCodeStateDir?:
   const screen = known.screen ?? await liveScreen(paneId);
   // Codex's collapsed question queue reads blocked while its main prompt takes a message; a
   // model list of Claude Code's or Codex's that no reader could read is left to the terminal
-  // (claudeModelListWaits, codexModelListWaits)
-  if ((agent === "codex" && (codexQuestionsCollapsed(screen) || codexModelListWaits(screen))) || claudeModelListWaits(screen) || claudeModelListWaits(screen, CLAUDE_EFFORT_GUARD_RE)) {
+  // (registry.waits)
+  if ((agent === "codex" && codexQuestionsCollapsed(screen)) || registry.waits(agent, screen)) {
     fallbackLogged.delete(paneId);
     return { agent, status, prompt: asked(paneId, null, turns), pane, panes, screen };
   }
