@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, appendFileSync, readFileSync, realpathSync, rmS
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { defaultPiSessionDir, piTranscriptInStore, piTranscriptPath, unwrittenSession } from "./pi.ts";
+import { defaultPiSessionDir, piTranscriptInStore, piTranscriptPath, piUnwrittenHeaderId, unwrittenSession } from "./pi.ts";
 import { transcriptPage, piTranscriptImage } from "./conversation.ts";
 import type { ConversationTurn } from "../shared/protocol.ts";
 
@@ -66,6 +66,13 @@ describe("pi's session store holds the transcript a pane reads", () => {
     expect(unwrittenSession(join(slug, "fresh.txt"), store)).toBeNull();
     expect(unwrittenSession("fresh.jsonl", store)).toBeNull();
     expect(unwrittenSession(join(root, "no-store", "fresh.jsonl"), join(root, "no-store"))).toBeNull();
+  });
+  it("derives an unwritten Pi header id only from Pi's exact production filename", () => {
+    const id = "12345678-1234-4123-8123-123456789abc";
+    const unwritten = unwrittenSession(join(slug, `2026-10-12T22-06-12-992Z_${id}.jsonl`), store);
+    expect(unwritten).not.toBeNull();
+    expect(piUnwrittenHeaderId(unwritten!.path)).toBe(id);
+    expect(piUnwrittenHeaderId(join(slug, `${id}.jsonl`))).toBeNull();
   });
   it.skipIf(!canSymlink)("refuses a dangling session link", () => {
     const dangling = join(slug, "dangling.jsonl");
