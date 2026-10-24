@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { paneStorageId } from "../../shared/machines.ts";
-import { deviceBusy, followsHerdrFocus, unsentDraft } from "./followFocus.ts";
+import { deviceBusy, deviceInUse, followsHerdrFocus, unsentDraft, type PaneDrafts } from "./followFocus.ts";
 import { writeTerminalDraft } from "./terminalDraft.ts";
 
 const base = {
@@ -48,23 +48,31 @@ describe("a device in use", () => {
     activeElement: active as Element | null, hasFocus: () => front,
     querySelector: (query: string) => (modal && query.includes("aria-modal") ? ({} as Element) : null),
   });
+  const drafts = (text: string): PaneDrafts => ({ composer: () => text, line: () => "", held: () => "" });
+  const here = { machineId: "local", paneId: "w1:p1" };
 
-  it("is typing into a text field of the window in front", () => {
+  it("is busy typing into a text field, or with a dialog open", () => {
     expect(deviceBusy(page(field("textarea"), true))).toBe(true);
     expect(deviceBusy(page(field("input"), true))).toBe(true);
+    expect(deviceBusy(page(null, true, true))).toBe(true);
   });
 
-  it("is not while its window is behind herdr's, whatever field kept the focus", () => {
-    expect(deviceBusy(page(field("textarea"), false))).toBe(false);
-  });
-
-  it("is not when the focus is on no field", () => {
+  it("is not busy when the focus is on no field and no dialog is open", () => {
     expect(deviceBusy(page(field("button"), true))).toBe(false);
     expect(deviceBusy(page(null, true))).toBe(false);
   });
 
-  it("is while a dialog is open over the pane", () => {
-    expect(deviceBusy(page(null, false, true))).toBe(true);
+  it("is in use in a window in front that types, has a dialog open or holds an unsent message", () => {
+    expect(deviceInUse(here, page(field("textarea"), true), drafts(""))).toBe(true);
+    expect(deviceInUse(here, page(null, true, true), drafts(""))).toBe(true);
+    expect(deviceInUse(here, page(null, true), drafts("half a sentence"))).toBe(true);
+    expect(deviceInUse(here, page(null, true), drafts(""))).toBe(false);
+  });
+
+  it("is not in use in a window behind herdr's, whatever it has open or kept", () => {
+    expect(deviceInUse(here, page(field("textarea"), false), drafts(""))).toBe(false);
+    expect(deviceInUse(here, page(null, false, true), drafts(""))).toBe(false);
+    expect(deviceInUse(here, page(null, false), drafts("half a sentence"))).toBe(false);
   });
 });
 

@@ -10,7 +10,7 @@ import { sameTarget, type SplitTarget } from "./split.ts";
  * `pane-focused` frame says so. This device opens that pane too, only when it asked to and only on
  * the PC it has open: another PC's focus is that PC's business, and a pane already in front (the
  * selected one, or the other half of a split) stays where it is. A link still landing goes first,
- * and someone using this device (`busy`: deviceBusy, unsentDraft) keeps the pane they are on.
+ * and someone using this device (`busy`, deviceInUse) keeps the pane they are on.
  */
 export function followsHerdrFocus(input: {
   enabled: boolean;
@@ -30,16 +30,15 @@ export function followsHerdrFocus(input: {
 }
 
 /**
- * Someone is using this window: it is in front and its keyboard is in a text field (the composer,
- * the input line, the terminal's own), or a dialog is open over the pane. Following herdr's focus
- * then would drop the keyboard mid-sentence or close the dialog. A window in the background (its
- * reader is in herdr's own window) is not in use, whatever field kept its focus.
+ * A dialog is open over the pane, or the keyboard is in a text field (the composer, the input line,
+ * the terminal's own): following herdr's focus would close the dialog or drop the keyboard
+ * mid-sentence. Only a window in front counts (deviceInUse).
  */
-export function deviceBusy(doc: Pick<Document, "activeElement" | "hasFocus" | "querySelector"> = document): boolean {
+export function deviceBusy(doc: Pick<Document, "activeElement" | "querySelector"> = document): boolean {
   if (doc.querySelector('[aria-modal="true"], dialog[open]') !== null) return true;
   const active = doc.activeElement;
-  return doc.hasFocus() && active !== null && "matches" in active
-    && (active.matches("textarea, input, select, [contenteditable]:not([contenteditable='false'])"));
+  return active !== null && "matches" in active
+    && active.matches("textarea, input, select, [contenteditable]:not([contenteditable='false'])");
 }
 
 /** The unsent text each of a pane's three drafts holds, by its owner (paneStorageId). */
@@ -70,4 +69,18 @@ export function unsentDraft(selection: { machineId: string; paneId: string | nul
   if (selection.paneId === null) return false;
   const owner = paneStorageId(selection.machineId, selection.paneId);
   return [drafts.composer(owner), drafts.line(owner), drafts.held(owner)].some((text) => text.trim() !== "");
+}
+
+/**
+ * Someone is using this device on the pane it has open (#1470): its window is in front and it is
+ * busy there (deviceBusy) or holds an unsent message on the pane (unsentDraft). A window in the
+ * background is not in use, whatever it has open or kept: its reader is in herdr's own window,
+ * the case following herdr's focus is for.
+ */
+export function deviceInUse(
+  selection: { machineId: string; paneId: string | null },
+  doc: Pick<Document, "activeElement" | "hasFocus" | "querySelector"> = document,
+  drafts: PaneDrafts = draftsHere,
+): boolean {
+  return doc.hasFocus() && (deviceBusy(doc) || unsentDraft(selection, drafts));
 }
