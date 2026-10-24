@@ -59,7 +59,9 @@ export function useNotificationState() {
     if (!hasNativePlugin(PUSH_PLUGIN)) return;
     let current = true;
     const read = () => {
-      refreshNotificationState().then((state) => { if (current) setNotifications(state); }, (err) => console.warn("could not read the notification permission", err));
+      // the newest permission known once the check answers, not the check's own reading: a tap's
+      // answer that overtook it must not be put back to what the check read (lib/notifications.ts)
+      refreshNotificationState().then(() => { if (current) setNotifications(notificationState()); }, (err) => console.warn("could not read the notification permission", err));
     };
     const onVisible = () => { if (document.visibilityState === "visible") read(); };
     read();

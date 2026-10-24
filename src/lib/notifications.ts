@@ -19,8 +19,16 @@ export { alertStatus, alertsAllow, shouldNotifyStatus } from "../../shared/notif
 
 export type NotificationState = "unsupported" | "default" | "granted" | "denied";
 
-/** The app's permission as its push plugin last answered (`askApp`); the page cannot read it synchronously. */
+/** The app's permission, the newest of its push plugin's answers (`askApp`); the page cannot read it synchronously. */
 let appPermission: NotificationState = "default";
+/**
+ * Orders the plugin's answers, so an out-of-date one never replaces a newer one. A check counts from
+ * when it was asked: what it read can be older than an answer that overtakes it (the page came back
+ * into view as the user tapped Alerts, and the check answers after the tap's request). A request
+ * counts from when its answer came, as the user gave it then.
+ */
+let turns = 0;
+let answeredTurn = 0;
 
 export function notificationState(): NotificationState {
   if (hasNativePlugin(PUSH_PLUGIN)) return appPermission;
@@ -28,10 +36,18 @@ export function notificationState(): NotificationState {
   return globalThis.Notification.permission;
 }
 
-/** Capacitor's permission states as the app's push plugin answers them; Android's "prompt-with-rationale" may still ask. */
+/**
+ * Capacitor's permission states as the app's push plugin answers them; Android's "prompt-with-rationale"
+ * may still ask. Resolves to the newest permission known, which an answer that overtook this one set.
+ */
 async function askApp(method: "checkPermissions" | "requestPermissions"): Promise<NotificationState> {
+  const asked = method === "checkPermissions" ? ++turns : 0;
   const { notifications } = await callNative<{ notifications?: string }>(PUSH_PLUGIN, method);
-  appPermission = notifications === "granted" ? "granted" : notifications === "denied" ? "denied" : "default";
+  const turn = method === "requestPermissions" ? ++turns : asked;
+  if (turn > answeredTurn) {
+    answeredTurn = turn;
+    appPermission = notifications === "granted" ? "granted" : notifications === "denied" ? "denied" : "default";
+  }
   return appPermission;
 }
 

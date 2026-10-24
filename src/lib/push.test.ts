@@ -235,7 +235,8 @@ describe("in the phone app", () => {
    * until unsubscribe, with the phone's keys. The page has no service worker and no Notification.
    */
   const KEYS = { p256dh: Buffer.from(new Uint8Array(65).fill(9)).toString("base64url"), auth: Buffer.from(new Uint8Array(16).fill(3)).toString("base64url") };
-  let app: { permission: string; answer: string; saved: string | null; made: number; calls: string[] };
+  /** `checkGate`: holds a check's answer, which keeps the permission it read when it was asked */
+  let app: { permission: string; answer: string; saved: string | null; made: number; calls: string[]; checkGate: Promise<void> | null };
   let sent: Array<{ url: string; method: string | undefined; body: unknown }>;
   const subscription = (endpoint: string) => ({ endpoint, expirationTime: null, keys: KEYS });
 
@@ -245,7 +246,11 @@ describe("in the phone app", () => {
       PluginHeaders: plugins.map((name) => ({ name })),
       nativePromise: async (plugin: string, method: string, options: Record<string, unknown>) => {
         app.calls.push(`${plugin}.${method}`);
-        if (method === "checkPermissions") return { notifications: app.permission };
+        if (method === "checkPermissions") {
+          const reading = app.permission;
+          if (app.checkGate) await app.checkGate;
+          return { notifications: reading };
+        }
         if (method === "requestPermissions") {
           if (app.permission.startsWith("prompt")) app.permission = app.answer;
           return { notifications: app.permission };
@@ -265,7 +270,7 @@ describe("in the phone app", () => {
   beforeEach(async () => {
     delete (globalThis.navigator as { serviceWorker?: unknown }).serviceWorker;
     Object.assign(globalThis, { PushManager: undefined, Notification: undefined });
-    app = { permission: "granted", answer: "granted", saved: null, made: 0, calls: [] };
+    app = { permission: "granted", answer: "granted", saved: null, made: 0, calls: [], checkGate: null };
     sent = [];
     const server = globalThis.fetch;
     globalThis.fetch = (async (url: string, init?: RequestInit) => {
@@ -289,6 +294,27 @@ describe("in the phone app", () => {
     expect(await requestNotificationPermission()).toBe("granted");
     expect(notificationState()).toBe("granted");
     expect(app.calls.filter((call) => call === "OvisPush.requestPermissions")).toHaveLength(1);
+  });
+
+  // the page came back into view as the user tapped Alerts: its check read the permission before
+  // the user answered the prompt, and its answer arrives after the tap's
+  it("keeps the permission the user just gave when an older check answers after it, and subscribes", async () => {
+    app.permission = "prompt";
+    await refreshNotificationState();
+    const held = deferred();
+    app.checkGate = held.promise;
+    const late = refreshNotificationState();
+    app.checkGate = null;
+    expect(await requestNotificationPermission()).toBe("granted");
+    held.resolve();
+    expect(await late).toBe("granted");
+    expect(notificationState()).toBe("granted");
+    expect(await ensurePushSubscription()).toBe("https://push.ovis.sh/v1/push/1");
+    expect(app.calls).toContain("OvisPush.subscribe");
+    expect(registered).toEqual(["https://push.ovis.sh/v1/push/1"]);
+    // a check asked after the answer still counts: notifications turned off in the phone's Settings
+    app.permission = "denied";
+    expect(await refreshNotificationState()).toBe("denied");
   });
 
   it("subscribes through the app with the PC's key and hands the PC the app's subscription", async () => {
