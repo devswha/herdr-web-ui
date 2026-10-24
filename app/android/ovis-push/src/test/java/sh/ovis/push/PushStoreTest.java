@@ -27,9 +27,9 @@ public class PushStoreTest {
                 @Override public Editor remove(String key) { next.remove(key); return this; }
                 @Override public Editor clear() { next.clear(); return this; }
                 @Override public boolean commit() {
-                    if (!writable) return false;
                     values.clear();
                     values.putAll(next);
+                    if (!writable) return false;
                     commits++;
                     return true;
                 }
@@ -126,10 +126,11 @@ public class PushStoreTest {
         assertEquals(0, prefs.commits);
     }
 
-    @Test public void failedSaveDoesNotReturnUnstoredKeys() {
+    @Test public void failedSaveDoesNotReturnUnstoredKeys() throws GeneralSecurityException {
         MemoryPreferences prefs = new MemoryPreferences();
         prefs.writable = false;
         assertThrows(GeneralSecurityException.class, () -> PushStore.getOrCreate(prefs));
+        assertNull(PushStore.read(prefs));
         assertEquals(0, prefs.commits);
     }
 }

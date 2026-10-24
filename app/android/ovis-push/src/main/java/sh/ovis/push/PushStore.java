@@ -69,7 +69,11 @@ final class PushStore {
             .putString("public", encoder.encodeToString(keys.publicPoint))
             .putString("auth", encoder.encodeToString(keys.auth))
             .commit();
-        if (!saved) throw new GeneralSecurityException("could not save push keys");
+        if (!saved) {
+            // commit() has already updated memory even when the disk write fails.
+            prefs.edit().remove("private").remove("public").remove("auth").apply();
+            throw new GeneralSecurityException("could not save push keys");
+        }
         return keys;
     }
 

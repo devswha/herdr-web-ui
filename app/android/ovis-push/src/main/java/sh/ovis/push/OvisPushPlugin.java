@@ -49,7 +49,10 @@ public class OvisPushPlugin extends Plugin {
         PushStore.Endpoint saved = origin == null ? null : PushStore.endpoint(getContext(), origin);
         try {
             JSObject result = new JSObject();
-            result.put("subscription", saved == null ? JSONObject.NULL : subscription(saved.endpoint, PushStore.read(getContext())));
+            if (saved == null) result.put("subscription", JSONObject.NULL);
+            else if (call.getBoolean("endpointOnly", false)) {
+                result.put("subscription", new JSObject().put("endpoint", saved.endpoint));
+            } else result.put("subscription", subscription(saved.endpoint, PushStore.read(getContext())));
             call.resolve(result);
         } catch (PushKeys.Damaged damaged) {
             JSObject result = new JSObject();
