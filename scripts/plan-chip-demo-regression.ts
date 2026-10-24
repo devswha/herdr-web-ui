@@ -523,9 +523,9 @@ try {
         console.log(`PASS ${what}: Korean chip words, step, list and an unbroken step`);
       });
 
-      // the narrowest phone: the chip, its figures and the composer's controls still share one row
-      for (const theme of ["dark", "light"] as const) await scenario(browser, 320, theme, "en", async (page, touch) => {
-        const what = `320px ${theme}`;
+      // the narrowest phones: the chip, its figures and the composer's controls still share one row
+      for (const width of [320, 360]) for (const theme of ["dark", "light"] as const) await scenario(browser, width, theme, "en", async (page, touch) => {
+        const what = `${width}px ${theme}`;
         const hook = hookOf(page);
         await hook.status({ done: 1, total: 3, current: LONG }, 2);
         await page.locator(".bg-tasks-count").waitFor();
@@ -534,7 +534,7 @@ try {
         assert.ok(row.count?.drawn && row.count.inside, `${what}: the task count is whole on the narrowest phone`);
         assert.equal(row.current?.clipped, true);
         assert.equal(await page.locator(".composer-controls-right .composer-stop, .composer-controls-right .composer-send").count(), 1, `${what}: the round control keeps its place`);
-        await shot(page, 320, theme, "en", "narrow");
+        await shot(page, width, theme, "en", "narrow");
         results.push({ what, state: "narrow", chip: row.chip, current: row.current, count: row.count, card: row.card, model: row.model });
         console.log(`PASS ${what}: one row with a long step, the figures and a task count`);
         void touch;
