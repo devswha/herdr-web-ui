@@ -1650,7 +1650,8 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, finish
       const distance = pageScrollDistance(node.clientHeight, rowHeight, PAGE_OVERLAP_ROWS);
       const before = node.scrollTop;
       node.scrollTo({ top: before + direction * distance, behavior: "instant" });
-      if (node.scrollTop !== before) navigated();
+      // paging back is navigation; paging toward the end keeps a follow on its way, as a wheel down does
+      if (direction < 0 && node.scrollTop !== before) navigated();
       // A physical end may still report a positive subpixel gap, even with no movement.
       if (direction > 0 && node.scrollHeight - node.clientHeight - node.scrollTop <= 1) {
         pagingAway.current = false;
@@ -1777,6 +1778,8 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, finish
     navigationRef.current += 1;
     void timeline.current?.scrollToIndex({ index, animated: false, viewPosition: 0 });
   }, [navigationRef]);
+  // the rail scrolls the chat from outside it, where the input listeners do not see the wheel
+  const minimapWheel = useCallback((deltaY: number) => { if (deltaY < 0) scrollInputAt.current = performance.now(); }, []);
   // a chip's action: the card's first control (the card is drawn into the dock, outside the
   // transcript), or the terminal lens where the command's screen is
   const focusPrompt = useCallback(() => {
@@ -1905,7 +1908,7 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, finish
         {footer}
       </div>
     </div>}
-    {state.source === "conversation" && <ChatMinimap turns={minimap} rowKeys={rowKeys} scroller={scroller} onJump={jumpToTurn} />}
+    {state.source === "conversation" && <ChatMinimap turns={minimap} rowKeys={rowKeys} scroller={scroller} onJump={jumpToTurn} onWheel={minimapWheel} />}
     {jump}
     </div>
     </div>
