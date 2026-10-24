@@ -34,20 +34,31 @@ export function followsHerdrFocus(input: {
 
 /** This device's requests that move herdr's focus, still unanswered, by PC. */
 const ownMoves = new Map<string, number>();
+/**
+ * How long a request this device made leaves herdr's focus to it at most: a PC that never answers
+ * (a stalled connection, neither refused nor closed) must not turn following off until a reload.
+ */
+export const OWN_MOVE_HOLD_MS = 10_000;
 
 /**
  * A request from this device that moves herdr's focus (a split that opens its new pane): herdr's
  * pane-focused frame may come before the answer, and following it would open the pane as an
  * automatic pick, with no keyboard and no Back entry, before the caller opens it as its own (#1470).
- * Until the request settles, frames from that PC are left to the caller; its own `then` runs after.
+ * Until the request settles, or OWN_MOVE_HOLD_MS passes, frames from that PC are left to the
+ * caller; its own `then` runs after.
  */
 export function movingHerdrFocus<T>(machineId: string, request: Promise<T>): Promise<T> {
   ownMoves.set(machineId, (ownMoves.get(machineId) ?? 0) + 1);
-  return request.finally(() => {
+  let held = true;
+  const release = (): void => {
+    if (!held) return;
+    held = false;
     const left = (ownMoves.get(machineId) ?? 1) - 1;
     if (left > 0) ownMoves.set(machineId, left);
     else ownMoves.delete(machineId);
-  });
+  };
+  const bound = setTimeout(release, OWN_MOVE_HOLD_MS);
+  return request.finally(() => { clearTimeout(bound); release(); });
 }
 
 /** A request from this device is moving herdr's focus on that PC (movingHerdrFocus). */

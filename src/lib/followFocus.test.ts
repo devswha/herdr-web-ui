@@ -1,6 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, jest } from "bun:test";
 import { paneStorageId } from "../../shared/machines.ts";
-import { deviceBusy, deviceInUse, followsHerdrFocus, movingHerdrFocus, movingHerdrFocusOn, unsentDraft, type PaneDrafts } from "./followFocus.ts";
+import { deviceBusy, deviceInUse, followsHerdrFocus, movingHerdrFocus, movingHerdrFocusOn, OWN_MOVE_HOLD_MS, unsentDraft, type PaneDrafts } from "./followFocus.ts";
 import { writeTerminalDraft } from "./terminalDraft.ts";
 
 const base = {
@@ -72,6 +72,29 @@ describe("a focus move this device asked for", () => {
     second.resolve("w1:p3");
     await made;
     expect(movingHerdrFocusOn("local")).toBe(false);
+  });
+
+  it("ends the hold of a request the PC never answers once its bound runs out, and only that one", async () => {
+    jest.useFakeTimers();
+    try {
+      const stalled = deferred();
+      const stalledHold = movingHerdrFocus("local", stalled.promise);
+      jest.advanceTimersByTime(OWN_MOVE_HOLD_MS - 1);
+      expect(movingHerdrFocusOn("local")).toBe(true);
+      jest.advanceTimersByTime(1);
+      expect(movingHerdrFocusOn("local")).toBe(false);
+      // a late answer to the stalled request does not end the hold of a request made since
+      const later = deferred();
+      const answered = movingHerdrFocus("local", later.promise);
+      stalled.resolve("w1:p5");
+      await stalledHold;
+      expect(movingHerdrFocusOn("local")).toBe(true);
+      later.resolve("w1:p4");
+      await answered;
+      expect(movingHerdrFocusOn("local")).toBe(false);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
 

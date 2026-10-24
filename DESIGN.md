@@ -1357,8 +1357,8 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   on the PC open here and never for a pane already in front (the selected one or the other split
   half). It is an automatic pick: no keyboard is raised and no Back entry is added. A split this
   device asked to open (Split pane right and open it) stays its own pick, keyboard and Back entry
-  included, even when herdr's frame comes before the split's answer: while that request is
-  answered, that PC's frames are not followed. A PC on Ovis older than 0.4.13 sends no such frame,
+  included, even when herdr's frame comes before the split's answer: until that request is
+  answered, for 10 s at most, that PC's frames are not followed. A PC on Ovis older than 0.4.13 sends no such frame,
   which the setting's description says. Off, a browser
   is a tmux client of a grouped session (its own current window); on, it shares the session's
   current window as herdr's own window does. The coding-agent apps have no outside focus to follow.
