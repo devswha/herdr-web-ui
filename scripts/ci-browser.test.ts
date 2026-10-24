@@ -126,8 +126,9 @@ const MANUAL_BROWSER_SCRIPTS = [
 
 /**
  * Every script the lane runs, plus every script those import (`from "./x.ts"`, `import("./x.ts")`)
- * or spawn (`join(import.meta.dir, "x.ts")`), transitively. A spawn counts only from a file that
- * runs as a script: an imported helper's spawn usually sits under `import.meta.main`.
+ * or spawn (`spawn([..., join(import.meta.dir, "x.ts")`), transitively. A path built anywhere else
+ * (a Bun.build entry, say) is not a run. A spawn counts only from a file that runs as a script: an
+ * imported helper's spawn usually sits under `import.meta.main`.
  */
 function laneReach(lane: string[]): Set<string> {
   const reached = new Set<string>();
@@ -145,7 +146,7 @@ function laneReach(lane: string[]): Set<string> {
       pending.push({ script: `scripts/${match[1]}`, runs: false });
     }
     if (!runs) continue;
-    for (const match of source.matchAll(/import\.meta\.dir,\s*["']([\w.-]+\.tsx?)["']/g)) {
+    for (const match of source.matchAll(/spawn(?:Sync)?\(\s*\[[^\]]*?import\.meta\.dir,\s*["']([\w.-]+\.tsx?)["']/g)) {
       pending.push({ script: `scripts/${match[1]}`, runs: true });
     }
   }
