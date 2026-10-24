@@ -82,13 +82,15 @@ if (import.meta.main) {
   const { createServer } = await import("../server/index.ts");
   const { UsageService } = await import("../server/usage.ts");
   const state = mkdtempSync(join(tmpdir(), "ovis-composition-state-"));
-  const server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: state, usage: new UsageService(undefined, []) });
-  const browser = await chromium.launch({ executablePath: chromePath(), headless: true, args: ["--no-sandbox"] });
+  let server: ReturnType<typeof createServer> | undefined;
+  let browser: Browser | undefined;
   try {
+    server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: state, usage: new UsageService(undefined, []) });
+    browser = await chromium.launch({ executablePath: chromePath(), headless: true, args: ["--no-sandbox"] });
     await checkTerminalComposition(browser, `http://127.0.0.1:${server.port}`);
   } finally {
-    await browser.close();
-    server.stop();
+    await browser?.close();
+    server?.stop();
     rmSync(state, { recursive: true, force: true });
   }
 }
