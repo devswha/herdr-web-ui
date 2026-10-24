@@ -66,7 +66,8 @@ it("sends nothing when the bridge has not said what it supports by the end of th
     // no snapshot yet: whether this bridge takes `submit` is unknown, not "an older bridge"
     const result = client.submit("w1:p1", "chat message", "chat message");
     jest.advanceTimersByTime(2_000);
-    expect(await result).toMatchObject({ ok: false, code: "not_transmitted" });
+    // not a dropped connection: the socket is open, only its snapshot is late (#1806)
+    expect(await result).toMatchObject({ ok: false, code: "capabilities_unknown" });
     expect(submissions(socket)).toEqual([]);
   } finally {
     client.close();
