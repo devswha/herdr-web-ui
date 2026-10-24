@@ -284,6 +284,37 @@ describe("slots", () => {
     }
   });
 
+  it("refuses different lock ranges while the checkout claim is live, then admits after release", async () => {
+    const firstBase = await freeRange(3);
+    let secondBase = await freeRange(3);
+    while (Math.abs(firstBase - secondBase) <= 3) secondBase = await freeRange(3);
+    const checkoutLock = join(scratch(), "checkout.lock");
+    const first = await acquire({ slots: 1, scan: 3, base: firstBase, checkout: "/same", checkoutLock });
+    try {
+      expect("release" in first).toBe(true);
+      const refused = await acquire({ slots: 1, scan: 3, base: secondBase, checkout: "/same", checkoutLock });
+      try {
+        expect(refused).toEqual({ refused: "same-checkout", holders: [{ port: secondBase + 3, heldBy: process.pid, checkout: "/same" }] });
+      } finally { release(refused); }
+    } finally { release(first); }
+    const next = await acquire({ slots: 1, scan: 3, base: secondBase, checkout: "/same", checkoutLock });
+    expect("release" in next).toBe(true);
+    release(next);
+  });
+
+  it("takes over a checkout claim left by a dead pid", async () => {
+    const base = await freeRange(3);
+    const checkoutLock = join(scratch(), "checkout.lock");
+    const finished = spawnSync(process.execPath, ["-e", "console.log(process.pid)"], { encoding: "utf8" });
+    expect(finished.status).toBe(0);
+    writeFileSync(`${checkoutLock}.check-lock`, JSON.stringify({ pid: Number(finished.stdout.trim()), checkout: "/dead" }));
+    const result = await acquire({ slots: 1, scan: 3, base, checkout: "/mine", checkoutLock });
+    try {
+      expect("release" in result).toBe(true);
+      expect(JSON.parse(readFileSync(`${checkoutLock}.check-lock`, "utf8")).pid).toBe(process.pid);
+    } finally { release(result); }
+  });
+
   it("tells runners that share a loopback apart although they check out to one path", async () => {
     const base = await freeRange(3);
     const path = "/w/herdr-web-ui/herdr-web-ui";

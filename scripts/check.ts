@@ -354,7 +354,7 @@ export type SlotHolder = Holder & { port: number };
  * unlink each other's newly acquired marker. A busy admission port refuses rather than waits.
  */
 export async function acquire(
-  { slots, checkout, base = DEFAULT_LOCK_PORT, pid = process.pid, scan = MAX_RUNS_LIMIT, resources = [], reports = [] }: { slots: number; checkout: string; base?: number; pid?: number; scan?: number; resources?: readonly string[]; reports?: readonly string[] },
+  { slots, checkout, base = DEFAULT_LOCK_PORT, pid = process.pid, scan = MAX_RUNS_LIMIT, resources = [], reports = [], checkoutLock }: { slots: number; checkout: string; base?: number; pid?: number; scan?: number; resources?: readonly string[]; reports?: readonly string[]; checkoutLock?: string },
 ): Promise<{ release: () => void; port: number | null } | { refused: "busy" | "same-checkout" | "resource"; holders: SlotHolder[]; resource?: string }> {
   const admissionPort = base + Math.max(slots, scan);
   const admission = await lock(admissionPort, pid, checkout);
@@ -369,8 +369,9 @@ export async function acquire(
   try {
     // A report is written by renaming over its name (check-report.ts), which replaces a symlink
     // there whatever it points to: its lock is the name in its real directory, never the target.
-    const claims = [...resources.map((path) => ({ path, report: false })), ...reports.map((path) => ({ path, report: true }))];
-    for (const { path, report } of claims) {
+    const claims = [...resources.map((path) => ({ path, report: false, checkout: false })), ...reports.map((path) => ({ path, report: true, checkout: false }))];
+    if (slots > 0 && checkoutLock) claims.push({ path: checkoutLock, report: true, checkout: true });
+    for (const { path, report, checkout: checkoutClaim } of claims) {
       const absolute = resolve(path);
       mkdirSync(dirname(absolute), { recursive: true, mode: 0o700 });
       const isDir = !report && existsSync(absolute) && statSync(absolute).isDirectory();
@@ -397,6 +398,7 @@ export async function acquire(
           if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
           dead = true;
         }
+        if (!dead && checkoutClaim) return { refused: "same-checkout", holders: [{ port: admissionPort, heldBy: owner.pid, checkout: owner.checkout }] };
         if (!dead) return { refused: "resource", resource: canonical, holders: [{ port: admissionPort, heldBy: owner.pid, checkout: owner.checkout }] };
         rmSync(marker);
       }
@@ -507,7 +509,10 @@ export async function main(groupSeams: GroupSeams & {
       let waited = false;
       let base: number;
       try { base = lockPort(process.env); } catch (error) { console.error(`check: ${(error as Error).message}`); process.exit(2); }
-      const held = await acquireWaiting({ slots, checkout: checkoutIdentity(realpathSync(cwd)), base, resources, reports }, {
+      const checkout = checkoutIdentity(realpathSync(cwd));
+      const checkoutLock = needsHerdr ? join(realpathSync(cwd), "node_modules", ".cache", "check", "checkout.lock") : undefined;
+      if (checkoutLock) mkdirSync(dirname(checkoutLock), { recursive: true, mode: 0o700 });
+      const held = await acquireWaiting({ slots, checkout, base, resources, reports, ...(checkoutLock ? { checkoutLock } : {}) }, {
         waitMs: wait * 1000,
         onWait: (holders) => {
           waited = true;
