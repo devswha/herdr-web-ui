@@ -87,13 +87,15 @@ relay's FCM credentials are a service account key of the app's Firebase project,
    [The app (app/)](#the-app-app). QR scanning still needs a physical iPhone (the simulator
    has no camera).
 3. Relay Worker with tests (VAPID pinning, rate limit, gone tokens). Built 2026-10-23 in
-   [`push-relay/`](../push-relay/README.md), at `push.ovis.sh`; deploying it needs the D1
-   database and the APNs secrets its README lists, then one real push (`push-relay/test-push.ts`).
+   [`push-relay/`](../push-relay/README.md), at `push.ovis.sh`. Deployed 2026-10-24 with its D1
+   database, APNs and FCM credentials, which passed their authentication tests; a push received
+   on a real device is still to be checked (`push-relay/test-push.ts`).
 4. `src/lib/push.ts`: subscribe through the native bridge inside the app. Built 2026-10-24, on
    iOS and Android alike, see [Push in the app](#push-in-the-app).
 5. Notification Service Extension that decrypts. Built 2026-10-24 (`OvisNotifications`), see
    [Push in the app](#push-in-the-app).
-6. App Store listing, privacy answers, review notes pointing at the demo mode.
+6. App Store listing, privacy answers, review notes pointing at the demo mode. Version 1.0
+   (build 2) was submitted for review on 2026-10-24, to be released by hand once approved.
 
 ## Phase 2 and later
 
@@ -101,7 +103,8 @@ relay's FCM credentials are a service account key of the app's Firebase project,
   the same relay).
 - Android pushes. The relay's FCM route, the app's receiving module
   ([`ovis-push`](../app/android/ovis-push/README.md)) and the client's subscribe through it (step 4)
-  are built; they wait for the Firebase project and the relay's deploy. The Android app itself exists
+  are built, and the relay is deployed with its FCM credentials. A release build needs
+  `google-services.json` from the Firebase project (see that README). The Android app itself exists
   already (see [The Android app](#the-android-app)): the maintainer tests on a Galaxy, not an
   iPhone.
 - Speed: measure what is slow before changing anything; bundling the UI in the app is off the
