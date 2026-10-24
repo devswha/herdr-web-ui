@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { paneStorageId } from "../../shared/machines.ts";
-import { deviceBusy, deviceInUse, followsHerdrFocus, unsentDraft, type PaneDrafts } from "./followFocus.ts";
+import { deviceBusy, deviceInUse, followsHerdrFocus, movingHerdrFocus, movingHerdrFocusOn, unsentDraft, type PaneDrafts } from "./followFocus.ts";
 import { writeTerminalDraft } from "./terminalDraft.ts";
 
 const base = {
@@ -11,6 +11,7 @@ const base = {
   splitOther: null,
   linkPending: false,
   busy: false,
+  ownMove: false,
 };
 
 describe("following herdr's focus", () => {
@@ -39,6 +40,38 @@ describe("following herdr's focus", () => {
 
   it("keeps the pane of someone using this device (#1470)", () => {
     expect(followsHerdrFocus({ ...base, busy: true })).toBe(false);
+  });
+
+  it("leaves a move this device asked for to its own answer (#1470)", () => {
+    expect(followsHerdrFocus({ ...base, ownMove: true })).toBe(false);
+  });
+});
+
+describe("a focus move this device asked for", () => {
+  const deferred = () => {
+    let resolve!: (pane: string) => void, reject!: (cause: Error) => void;
+    const promise = new Promise<string>((ok, fail) => { resolve = ok; reject = fail; });
+    return { promise, resolve, reject };
+  };
+
+  it("holds the PC's frames until its answer, which the caller sees after the hold ends", async () => {
+    const split = deferred();
+    const answered = movingHerdrFocus("local", split.promise).then((pane) => ({ pane, held: movingHerdrFocusOn("local") }));
+    expect(movingHerdrFocusOn("local")).toBe(true);
+    expect(movingHerdrFocusOn("office")).toBe(false);
+    split.resolve("w1:p2");
+    expect(await answered).toEqual({ pane: "w1:p2", held: false });
+  });
+
+  it("ends the hold when herdr refuses, and only once every move on that PC is answered", async () => {
+    const first = deferred(), second = deferred();
+    const refused = movingHerdrFocus("local", first.promise).catch(() => movingHerdrFocusOn("local"));
+    const made = movingHerdrFocus("local", second.promise);
+    first.reject(new Error("pane split failed"));
+    expect(await refused).toBe(true);
+    second.resolve("w1:p3");
+    await made;
+    expect(movingHerdrFocusOn("local")).toBe(false);
   });
 });
 
