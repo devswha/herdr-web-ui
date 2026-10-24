@@ -352,8 +352,9 @@ type MarkerOwner = { pid: number; checkout: string };
  * an older check cut short, is taken over only by the run holding `<marker>.reclaim`, which reads the
  * marker again under it: runs on other CHECK_LOCK_PORT bases are not serialized by this run's
  * admission port. A marker that is gone is created again, never removed. Both files are written beside
- * and linked into place, so a reader never sees one half written. One window is left: a reclaimer that
- * dies holding `.reclaim` while two runs on other bases start at once can let both of them claim.
+ * and linked into place, so a reader never sees one half written. A `.reclaim` a dead run left is not
+ * removed: no lock guards that removal, so two runs could each take the other's fresh claim. The run
+ * stops and names the file, to be deleted by hand once no check is running.
  */
 function claimMarker(marker: string, pid: number, checkout: string, alive: (pid: number) => boolean): MarkerOwner | null {
   const create = (path: string): boolean => {
@@ -391,8 +392,7 @@ function claimMarker(marker: string, pid: number, checkout: string, alive: (pid:
     if (!create(reclaim)) {
       const reclaimer = state(reclaim);
       if ("owner" in reclaimer) return reclaimer.owner;
-      // a reclaimer that died mid-takeover
-      if ("dead" in reclaimer) rmSync(reclaim, { force: true });
+      if ("dead" in reclaimer) throw new Error(`${reclaim} was left by a check that ended while taking over a lock; delete it if no \`bun run check\` is running`);
       continue;
     }
     try {

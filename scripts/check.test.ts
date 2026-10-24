@@ -330,20 +330,25 @@ describe("slots", () => {
     } finally { release(result); }
   });
 
-  it("clears a dead reclaim claim and takes over the stale checkout marker", async () => {
-    const base = await freeRange(3);
+  it("stops at a reclaim claim a dead run left, naming it, and touches neither file", async () => {
     const checkoutLock = join(scratch(), "checkout.lock");
     const finished = spawnSync(process.execPath, ["-e", "console.log(process.pid)"], { encoding: "utf8" });
     expect(finished.status).toBe(0);
     const marker = `${checkoutLock}.check-lock`;
-    writeFileSync(marker, JSON.stringify({ pid: Number(finished.stdout.trim()), checkout: "/dead" }));
-    writeFileSync(`${marker}.reclaim`, JSON.stringify({ pid: Number(finished.stdout.trim()), checkout: "/dead-reclaimer" }));
-    const result = await acquire({ slots: 1, scan: 3, base, checkout: "/mine", checkoutLock });
-    try {
-      expect("release" in result).toBe(true);
-      expect(JSON.parse(readFileSync(marker, "utf8"))).toEqual({ pid: process.pid, checkout: "/mine" });
-      expect(existsSync(`${marker}.reclaim`)).toBe(false);
-    } finally { release(result); }
+    const stale = JSON.stringify({ pid: Number(finished.stdout.trim()), checkout: "/dead" });
+    writeFileSync(marker, stale);
+    writeFileSync(`${marker}.reclaim`, stale);
+    // two runs on other lock bases, as two checks started at once would be: neither may take over
+    const firstBase = await freeRange(3);
+    let secondBase = await freeRange(3);
+    while (Math.abs(firstBase - secondBase) <= 3) secondBase = await freeRange(3);
+    const results = await Promise.allSettled([firstBase, secondBase].map((base) => acquire({ slots: 1, scan: 3, base, checkout: "/mine", checkoutLock })));
+    for (const result of results) {
+      expect(result.status).toBe("rejected");
+      if (result.status === "rejected") expect(String(result.reason)).toContain(`${marker}.reclaim`);
+    }
+    expect(readFileSync(marker, "utf8")).toBe(stale);
+    expect(readFileSync(`${marker}.reclaim`, "utf8")).toBe(stale);
   });
 
   it("admits exactly one cross-base contender reclaiming a stale checkout marker", async () => {
