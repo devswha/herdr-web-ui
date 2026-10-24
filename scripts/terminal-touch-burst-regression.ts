@@ -362,6 +362,8 @@ process.stdout.write(Array.from({ length: 400 }, (_, n) => "app history " + n + 
         nativeLinesMoved: offsetAfter === null ? null : offsetAfter - offsetBefore,
         expectedNativeLines: target.kind === "native-history" ? -expectedSum * HERDR_MOUSE_SCROLL_LINES : null,
         perFrameDispatches: [...perFrame.values()], maxDispatchesPerFrame: Math.max(0, ...perFrame.values()),
+        // a report sent outside any frame callback (from the touch handler itself) escapes the per-frame count
+        wheelsOutsideFrames: wheels.filter((event) => event.ft === undefined).length,
         peakQueue, droppedReports: expected.length - wheels.length,
         drainAfterTouchendMs: Math.max(0, lastWheel - touchend),
         ptyFramesParsed: probe.ptyFrames, parsedAfterTouchendMs: parsedAt - touchend,
@@ -595,6 +597,7 @@ process.stdout.write(Array.from({ length: 400 }, (_, n) => "app history " + n + 
     if (result.kind === "application") assert.equal(result.applicationReceivedSequence, result.expectedSequence, `${result.kind} ${result.gesture} rep ${result.rep}: the application receives every derived step in order`);
     else assert.equal(result.nativeLinesMoved, result.expectedNativeLines, `${result.kind} ${result.gesture} rep ${result.rep}: native history moves by every derived step`);
     assert.equal(result.droppedReports, 0, `${result.gesture}: an ordinary swipe drops nothing`);
+    assert.equal(result.wheelsOutsideFrames, 0, `${result.kind} ${result.gesture} rep ${result.rep}: every report goes out from an animation frame`);
     assert.ok((result.maxDispatchesPerFrame as number) <= TOUCH_WHEEL_REPORTS_PER_FRAME, `${result.kind} ${result.gesture} rep ${result.rep}: at most ${TOUCH_WHEEL_REPORTS_PER_FRAME} reports per frame, saw ${result.maxDispatchesPerFrame}`);
     assert.ok((result.peakQueue as number) <= TOUCH_WHEEL_QUEUE_LIMIT, `${result.gesture}: at most ${TOUCH_WHEEL_QUEUE_LIMIT} reports waiting, saw ${result.peakQueue}`);
     if (result.screens === 2) assert.ok((result.drainAfterTouchendMs as number) <= DRAIN_LIMIT_MS, `${result.kind} ${result.gesture} rep ${result.rep}: drained ${result.drainAfterTouchendMs} ms after touchend`);
