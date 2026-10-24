@@ -124,8 +124,9 @@ export type { Machine, MachineEvent, MachineRoster, PaneTarget, SetupJob, SetupR
  *         Update POSTs require X-Herdr-Update: 1, same-origin browser requests,
  *         and the usual token gate. Managed starts only; status is polled during restart.
  *  POST   /api/connection-diagnostics    -> 204; ClientConnectionTrace, metadata only, same-origin
- *         and authenticated (watch devices included). 400 invalid_trace, 413 trace_too_large,
- *         429 trace_rate_limited. At most 16 events and 8192 bytes; never input or credentials.
+ *         and authenticated (watch devices included). 400 invalid_trace, 408 trace_timeout (the
+ *         body took over 10 s to arrive), 413 trace_too_large, 429 trace_rate_limited. At most 16
+ *         events and 8192 bytes; never input or credentials.
  *  GET    /api/telemetry                 -> TelemetryStatus (shared/telemetry.ts), no-store
  *  POST   /api/telemetry                 -> TelemetryStatus; TelemetryChange (shared/telemetry.ts):
  *         { enabled?, notice_seen?: true, notice_version?, settings? }. A notice acknowledgement
