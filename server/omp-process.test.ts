@@ -1,10 +1,29 @@
 import { expect, it, spyOn } from "bun:test";
 import { createOmpProcessProbe, processStartTicks } from "./omp-process.ts";
 
+/** The child emits one byte only after Bun starts executing its script. */
+async function waitForReady(stdout: ReadableStream<Uint8Array>): Promise<void> {
+  const reader = stdout.getReader();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const { done, value } = await Promise.race([
+      reader.read(),
+      new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("process fixture did not become ready")), 3000); }),
+    ]);
+    expect(done).toBe(false);
+    expect(value).toEqual(Uint8Array.of(46));
+  } finally {
+    clearTimeout(timer);
+    await reader.cancel();
+    reader.releaseLock();
+  }
+}
+
 it.skipIf(process.platform !== "linux")("reads a live process's arguments and only the environment omp lookups need", async () => {
   const env = { PATH: process.env["PATH"] ?? "", OMP_PROFILE: "personal", TMUX: "/tmp/tmux-1/default,1,0", TMUX_PANE: "%3", SECRET_TOKEN: "do-not-pass" };
-  const target = Bun.spawn([process.execPath, "-e", "setInterval(() => {}, 1000)"], { env, stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+  const target = Bun.spawn([process.execPath, "-e", "process.stdout.write('.'); setInterval(() => {}, 1000)"], { env, stdin: "ignore", stdout: "pipe", stderr: "ignore" });
   try {
+    await waitForReady(target.stdout);
     const read = createOmpProcessProbe();
     const result = await read(target.pid, true);
     expect(result?.argv.length).toBeGreaterThan(0);
@@ -15,9 +34,10 @@ it.skipIf(process.platform !== "linux")("reads a live process's arguments and on
 });
 
 it.skipIf(process.platform !== "linux")("keeps a process's empty arguments where they stand", async () => {
-  const argv = [process.execPath, "-e", "setInterval(() => {}, 1000)", "--cwd", "", "/B", ""];
-  const target = Bun.spawn(argv, { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+  const argv = [process.execPath, "-e", "process.stdout.write('.'); setInterval(() => {}, 1000)", "--cwd", "", "/B", ""];
+  const target = Bun.spawn(argv, { stdin: "ignore", stdout: "pipe", stderr: "ignore" });
   try {
+    await waitForReady(target.stdout);
     expect((await createOmpProcessProbe()(target.pid, true))?.argv).toEqual(argv);
   } finally { target.kill(); await target.exited; }
 });
