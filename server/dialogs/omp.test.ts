@@ -31,6 +31,18 @@ describe("omp Ask under omp's status row (#1644)", () => {
     expect(card(ask("multi-120"))).toMatchObject({ question: "Which synthetic targets should be checked?", multi_select: true });
   });
 
+  it("shows no card for an old Ask panel with another, empty box between it and the status row", () => {
+    // an answered question can leave its panel on screen while omp draws another box under it
+    const box = "\n\u256d\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256e\n\u2502        \u2502\n\u2570\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256f";
+    for (const name of ["single-120", "submit-60"]) {
+      const shown = ask(name);
+      const row = shown.match(STATUS_ROW_RE)![0];
+      const old = shown.replace(STATUS_ROW_RE, "").replace(/\n+$/, "") + box;
+      expect(parseInteractivePrompt("omp", `${old}${row}\n`), name).toBeNull();
+      expect(parseInteractivePrompt("omp", `${old}\n \u03c0 \u00b7 \u2b22 Ask fixture \u00b7 \ud83d\uddd1 \u2026/home/fixture \u00b7 \u25eb 5.7%/131K \u27f2\n`), `${name} at rest`).toBeNull();
+    }
+  });
+
   it("shows no card once the panel was answered and later output came above the status row", () => {
     expect(parseInteractivePrompt("omp", ask("settled-60"))).toBeNull();
   });
