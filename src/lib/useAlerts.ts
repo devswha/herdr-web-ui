@@ -9,6 +9,7 @@ import type { Translate } from "./i18n.ts";
 import type { SelectionMark } from "./selectionMark.ts";
 import {
   notificationState,
+  refreshNotificationState,
   requestNotificationPermission,
   shouldNotifyStatus,
   alertStatus,
@@ -50,6 +51,21 @@ export function useAlertPrefs({ settings }: { settings: Settings }) {
 /** The browser's notification permission and whether this device has a push subscription. */
 export function useNotificationState() {
   const [notifications, setNotifications] = useState<NotificationState>(() => notificationState());
+  // the phone app's permission is read from the app (lib/notifications.ts), and any permission can
+  // change in settings while the page is away
+  useEffect(() => {
+    let current = true;
+    const read = () => {
+      refreshNotificationState().then((state) => { if (current) setNotifications(state); }, (err) => console.warn("could not read the notification permission", err));
+    };
+    const onVisible = () => { if (document.visibilityState === "visible") read(); };
+    read();
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      current = false;
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, []);
   // this device has a server-side push subscription: alerts come from the server, not the tab
   const [pushOn, setPushOn] = useState(false);
   const pushOnRef = useRef(pushOn);

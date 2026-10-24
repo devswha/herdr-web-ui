@@ -1,5 +1,6 @@
 import type { AgentStatus } from "../../shared/protocol.ts";
 import { ENDED_NOTIFICATION_BODY, paneNotificationTag, statusNotificationBody } from "../../shared/notify-policy.ts";
+import { callNative, hasNativePlugin, PUSH_PLUGIN } from "./nativeApp.ts";
 
 /**
  * Tab alerts: Web Notifications for pane status transitions while this page is open
@@ -8,6 +9,9 @@ import { ENDED_NOTIFICATION_BODY, paneNotificationTag, statusNotificationBody } 
  * (https or localhost) - a plain-http LAN deployment reports "unsupported", and the bell
  * there switches only the in-app alerts.
  *
+ * The phone app's web view has no Notification either: there the permission is the app's, asked
+ * through its push plugin (lib/nativeApp.ts), and the app shows the server's pushes itself.
+ *
  * The transition policy is shared with the server (shared/notify-policy.ts).
  */
 
@@ -15,12 +19,29 @@ export { alertStatus, alertsAllow, shouldNotifyStatus } from "../../shared/notif
 
 export type NotificationState = "unsupported" | "default" | "granted" | "denied";
 
+/** The app's permission as its push plugin last answered (`askApp`); the page cannot read it synchronously. */
+let appPermission: NotificationState = "default";
+
 export function notificationState(): NotificationState {
+  if (hasNativePlugin(PUSH_PLUGIN)) return appPermission;
   if (typeof globalThis.Notification === "undefined") return "unsupported";
   return globalThis.Notification.permission;
 }
 
+/** Capacitor's permission states as the app's push plugin answers them; Android's "prompt-with-rationale" may still ask. */
+async function askApp(method: "checkPermissions" | "requestPermissions"): Promise<NotificationState> {
+  const { notifications } = await callNative<{ notifications?: string }>(PUSH_PLUGIN, method);
+  appPermission = notifications === "granted" ? "granted" : notifications === "denied" ? "denied" : "default";
+  return appPermission;
+}
+
+/** The permission read anew: the app's changes in the phone's Settings while the page is away, and so can a browser's. */
+export async function refreshNotificationState(): Promise<NotificationState> {
+  return hasNativePlugin(PUSH_PLUGIN) ? askApp("checkPermissions") : notificationState();
+}
+
 export async function requestNotificationPermission(): Promise<NotificationState> {
+  if (hasNativePlugin(PUSH_PLUGIN)) return askApp("requestPermissions");
   if (typeof globalThis.Notification === "undefined") return "unsupported";
   const permission = await globalThis.Notification.requestPermission();
   return permission === "granted" ? "granted" : permission === "denied" ? "denied" : "default";
