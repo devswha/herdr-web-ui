@@ -62,6 +62,17 @@ export const closeMention = (text: string): string => {
   return /(?:^|\s)@\S+$/.test(body) ? `${open}${body} ${close}` : text;
 };
 
+/**
+ * The longest line the terminal's input line types raw; a longer one goes to the pane's agent as its prompt.
+ * Typed raw, a line reaches the program in pty-sized reads, and Claude Code took each full one for a paste of
+ * its own and dropped it before the Enter came: only the tail was sent (#1174). Lines of about 400 characters
+ * still arrived whole; 200 (at most 600 bytes) stays well under the smallest read seen, 1,022 bytes.
+ */
+const TYPED_LINE_MAX = 200;
+
+/** herdr's refusals of an agent.prompt that typed nothing: the input line types the line instead, as the keyboard would */
+const PROMPT_REFUSED = new Set(["agent_not_found", "agent_not_ready", "agent_blocked"]);
+
 export const modelSwitchText = (agent: string | null, text: string): string =>
   agent === "omp" && text.trim() === "/model" ? "/switch" : text;
 
@@ -493,6 +504,18 @@ export function createSubmitText({ options, lastTyped, attachments, terminalAtta
           if (clearDraft !== undefined || sendAnyway) throw error;
           const queuedOnly = error.code === "agent_blocked" && await blockedOnlyByCodexQueue(paneId);
           if (error.code !== "agent_not_found" && error.code !== "agent_not_ready" && !queuedOnly) throw error;
+        }
+      }
+      // one long line from the input line: herdr's agent.prompt pastes it in the agent's own paste mode and
+      // returns once its Enter followed (TYPED_LINE_MAX). An agent waiting for an answer, or none, is typed into.
+      if (fromTerminal && !sentText.includes("\n") && sentText.length > TYPED_LINE_MAX) {
+        try {
+          inTime();
+          await agentPrompt(paneId, closeMention(sentText));
+          noteSubmitted(paneId, sentText, recorded(command));
+          return;
+        } catch (error) {
+          if (!(error instanceof HerdrError) || !PROMPT_REFUSED.has(error.code)) throw error;
         }
       }
       inTime();

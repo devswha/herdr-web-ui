@@ -1213,6 +1213,37 @@ describe("WebSocket submit", () => {
     }
   }, 30_000);
 
+  // #1174: typed raw, a long line reached Claude Code in pty-sized reads, and it kept only the tail
+  const longLine = Array.from({ length: 24 }, (_, i) => `This is sentence number ${i + 1} of a long dictated message.`).join(" ");
+
+  it("hands an agent one long line from the terminal's input line through agent.prompt, pasted whole", async () => {
+    const socket = await Socket.connect();
+    try {
+      const from = chunks(agent).length;
+      socket.send({ type: "submit", id: 1174, pane_id: agent.pane, text: longLine, payload: longLine, typed: true });
+      expect(await socket.result(1174)).toMatchObject({ ok: true });
+      await received(agent, from, 1);
+      expect(typed(agent, from)).toBe(`${paste(longLine)}\r`);
+    } finally {
+      socket.close();
+    }
+  }, 30_000);
+
+  it("types one long line from the terminal's input line into an agent waiting for an answer, as the keyboard would", async () => {
+    const socket = await Socket.connect();
+    await herdrRpc("pane.report_agent", { pane_id: agent.pane, source: "manual", agent: "claude", state: "blocked" });
+    try {
+      const from = chunks(agent).length;
+      socket.send({ type: "submit", id: 1175, pane_id: agent.pane, text: longLine, payload: longLine, typed: true });
+      expect(await socket.result(1175)).toMatchObject({ ok: true });
+      await received(agent, from, 1);
+      expect(typed(agent, from)).toBe(`${longLine}\r`);
+    } finally {
+      await herdrRpc("pane.report_agent", { pane_id: agent.pane, source: "manual", agent: "claude", state: "idle" });
+      socket.close();
+    }
+  }, 30_000);
+
   it("still hands a message to a Codex blocked only by questions waiting collapsed in its queue", async () => {
     const socket = await Socket.connect();
     try {
