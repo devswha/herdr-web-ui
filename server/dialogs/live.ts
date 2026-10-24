@@ -25,6 +25,23 @@ const OMO_HINT_END_RE = /\besc (?:cancel|back|discard)$/;
 /** OmO's apparently empty input box; never sufficient evidence for sending text into it. */
 const OMO_EMPTY_BOX_RE = /^[❯›>]$/;
 
+/**
+ * omp's status row (18.12.6 with `composer.shape: pi`): a spinner and the elapsed time while the agent waits, or
+ * `π` at rest, then its ` · `-separated fields, e.g. ` ⠋ 0s · ⬢ Ask fixture · 🗑 …/home/fixture · ◫ 5.7%/131K ⟲`.
+ */
+const OMP_STATUS_ROW_RE = /^(?:[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] \S+|π) · /u;
+const OMP_PANEL_BOTTOM_RE = /^╰─+╯$/u;
+
+/**
+ * omp prints its status row right under the Ask panel's bottom border while the question waits (#1644): that row,
+ * there and nowhere else, is not later output. Alone it proves nothing; the border right above it does.
+ */
+function withoutOmpStatusRow(visible: string[], cleanLines: string[]): string[] {
+  const end = findLastIndex(cleanLines, (line) => line !== "");
+  if (end < 1 || !OMP_STATUS_ROW_RE.test(cleanLines[end]!) || !OMP_PANEL_BOTTOM_RE.test(cleanLines[end - 1]!)) return visible;
+  return visible.slice(0, -1);
+}
+
 /** the last row of Claude's review of several answers, which ends it in place of a hint */
 /** the last row of Claude's review of several answers, which ends it in place of a hint */
 const CLAUDE_SUBMIT_TAIL_RE = /^(?:[›>❯]\s*)?\d+\.\s+Cancel$/i;
@@ -65,7 +82,8 @@ export function promptTailIsActive(prompt: ParsedPrompt, screen: string): boolea
   const visible = cleanLines.filter((line) => line && !isDivider(line));
   // Claude's review has no hint of its own: its last row ends the panel, the session's rule and task list come after it
   const shown = prompt.responder === "claude-submit" ? withoutClaudeTasks(visible, (lines, end) => CLAUDE_SUBMIT_TAIL_RE.test(lines[end - 1] ?? ""))
-    : prompt.responder.startsWith("claude-") ? withoutClaudeTasks(visible) : visible;
+    : prompt.responder.startsWith("claude-") ? withoutClaudeTasks(visible)
+    : prompt.responder === "omp-question" || prompt.responder === "omp-submit" ? withoutOmpStatusRow(visible, cleanLines) : visible;
   const last = shown.at(-1) ?? "";
   // The menu is still at the bottom. A narrow pane wraps its hint, so the last line alone can
   // be the hint's tail (`cancel`): the lines before it count only when the match runs into
