@@ -720,7 +720,7 @@ and `release.yml` stay on `ubuntu-24.04` unless the variable holds labels. The v
 - in `release.yml`: the preflight and publish jobs.
 
 Detect changes, the Integration and browser summary, the Windows and macOS jobs,
-`remote-bundles.yml` and `windows-install.yml` always stay GitHub-hosted.
+`remote-bundles.yml`, `windows-install.yml` and `pr-title.yml` always stay GitHub-hosted.
 
 In `ci.yml`, Detect changes picks the runner with `scripts/ci-runner-route.sh`. A fork pull request
 always gets `ubuntu-24.04`, whatever the variable says. Since that script runs from the pull

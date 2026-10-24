@@ -46,7 +46,8 @@ Neither command updates itself; only `bun run start` and the plugin run the upda
   a PR: keep each as its own commit, in the order they depend on each other, and say in the
   description what needs what. PRs are squash merged, so the PR title becomes the commit:
   `type(scope): summary`, for example `fix(chat): keep the finished turn finished after Send`.
-  The merge adds `(#N)`.
+  The merge adds `(#N)`. The PR title check (`.github/workflows/pr-title.yml`) checks the title
+  again whenever it is edited.
 - Fill in the [PR template](.github/pull_request_template.md): what changed and how you checked it.
 - CI on a fork's PR waits until a maintainer approves the run. That approval is not a review.
 
