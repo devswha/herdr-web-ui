@@ -14,7 +14,7 @@ import { paneAgentOf, resolveAgent, typingRoots } from "../pane-context.ts";
 import { paneProcessRoots } from "../conversation.ts";
 import type { CommandSend } from "../outcome.ts";
 import { processStartedAt } from "../process-start.ts";
-import { isOmpProcess, ompAgentDir } from "../omp.ts";
+import { isOmpProcess, ompConfigDir } from "../omp.ts";
 import { processEnviron } from "../omo.ts";
 import { bindCommandProcess, CLAUDE_CLEAR_INPUT_KEYS, claudeClearableDraft, claudeInputBoxContent, claudeInputDraft, claudeInputEmpty, claudeRestoredDraft, claudeRewindOpen, codexQuestionsCollapsed, chatOwnedInput, heldCandidate, hermesInputDraft, noteSubmitted, parseInteractivePrompt, prepareCommandSend, viewportShowsLive } from "../prompt.ts";
 import { registry } from "../dialogs/registry.ts";
@@ -124,7 +124,7 @@ async function ompProcess(paneId: string): Promise<{ pid: number; integrated: bo
     if (typeof candidate.pid !== "number" || !isOmpProcess(argv)) continue;
     const environ = processEnviron(candidate.pid);
     const home = environ?.find((word) => word.startsWith("HOME="))?.slice(5) || process.env["HOME"] || "";
-    const agentDir = ompAgentDir(argv, environ, home);
+    const agentDir = ompConfigDir(argv, environ, home);
     return { pid: candidate.pid, integrated: agentDir !== null && existsSync(join(agentDir, OMP_INTEGRATION)) };
   }
   return null;
