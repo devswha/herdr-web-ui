@@ -13,7 +13,7 @@ mod input;
 mod pty;
 
 use frames::Frame;
-use input::{InputQueue, LineSplitter};
+use input::{InputQueue, LineSplitter, Pushed};
 use std::ffi::OsString;
 use std::fs::File;
 use std::io::{self, Read, Write};
@@ -39,7 +39,8 @@ const READ_CHUNK: usize = 64 * 1024;
 /// The longest frame held: every input the server writes comes from one WebSocket message, which Bun
 /// caps at 16 MiB by default and which escapes the text the way this frame does.
 const MAX_FRAME_BYTES: usize = 17 * 1024 * 1024;
-/// Input the command has not read yet, past which more is dropped (see InputQueue).
+/// Input the command has not read yet, each frame counted with its FRAME_COST, past which more is dropped
+/// (see InputQueue).
 const MAX_QUEUED_INPUT_BYTES: usize = 16 * 1024 * 1024;
 /// What the last read after a limit takes before the host ends.
 const FINAL_READ_BYTES: usize = 16 * 1024 * 1024;
@@ -214,7 +215,7 @@ fn write_input(master: OwnedFd, input: &InputQueue) {
         let data = input.next();
         // a pty whose command has gone refuses it (EIO): the pump ends the host then
         let _ = master.write_all(&data);
-        input.written(data.len());
+        input.written(data);
     }
 }
 
@@ -222,7 +223,6 @@ fn control(shared: &Arc<Shared>, input: &InputQueue, master: RawFd) {
     let mut stdin = io::stdin().lock();
     let mut buf = vec![0u8; READ_CHUNK];
     let mut lines = LineSplitter::new(MAX_FRAME_BYTES);
-    let mut dropping = false;
     loop {
         let read = match stdin.read(&mut buf) {
             Ok(0) => break,
@@ -234,11 +234,9 @@ fn control(shared: &Arc<Shared>, input: &InputQueue, master: RawFd) {
             let text = String::from_utf8_lossy(line);
             let Some(frame) = frames::parse(text.trim()) else { return };
             match frame {
-                Frame::Input(text) => {
-                    if input.push(text.into_bytes()) {
-                        dropping = false;
-                    } else if !dropping {
-                        dropping = true;
+                Frame::Input(text) => match input.push(text.into_bytes()) {
+                    Pushed::Queued | Pushed::Empty | Pushed::Dropped => {}
+                    Pushed::Overflowed => {
                         eprintln!("pty-sidecar: the command is not reading its input: {MAX_QUEUED_INPUT_BYTES} bytes wait, dropping input until it takes some");
                     }
                 }

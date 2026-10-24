@@ -6,8 +6,9 @@ A PTY host written in Rust that speaks the protocol of `server/pty/pty-host.mjs`
 bytes on stdout, and the child's exit code. Linux and macOS only.
 
 Its stdin is bounded: a control frame longer than 17 MiB is discarded up to its newline, and once
-16 MiB of input wait for a command that is not reading, further input frames are dropped (one stderr
-line each time it starts) while resize, pause and stop frames keep working. The command runs as the
+16 MiB of input wait for a command that is not reading (each frame counted with 80 bytes on top of its
+own, empty ones not queued), further input frames are dropped (one stderr line per overflow) while
+resize, pause and stop frames keep working. The command runs as the
 leader of its own process group, which the host kills whenever it ends: the command exiting, a stop
 (stdin closed, SIGTERM, SIGINT, SIGHUP, SIGQUIT, a broken stdout) or a crash (SIGABRT, SIGSEGV,
 SIGBUS, SIGILL, SIGFPE). A host killed outright (SIGKILL) cannot do that: on Linux the command itself

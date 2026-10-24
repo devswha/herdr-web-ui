@@ -313,7 +313,11 @@ function direct(args: string[]) {
       for (const waiter of [...waiters]) waiter();
     }
   })();
-  void new Response(proc.stderr).text();
+  let errors = "";
+  void (async () => {
+    const decoder = new TextDecoder();
+    for await (const chunk of proc.stderr) errors += decoder.decode(chunk, { stream: true });
+  })();
   const until = (label: string, text: string) => new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => { waiters.delete(test); reject(new Error(`no ${label} in ${LIMIT_MS} ms: ${JSON.stringify(output.slice(-200))}`)); }, LIMIT_MS);
     const test = () => {
@@ -327,7 +331,9 @@ function direct(args: string[]) {
   });
   /** the host's peak resident memory so far, in MiB */
   const peakMiB = () => Number(readFileSync(`/proc/${proc.pid}/status`, "utf8").match(/VmHWM:\s+(\d+)/)?.[1]) / 1024;
-  return { proc, until, peakMiB };
+  /** how many diagnostic lines the host wrote */
+  const errorLines = () => errors.split("\n").filter(Boolean).length;
+  return { proc, until, peakMiB, errorLines };
 }
 
 /** Reports each resize, and never reads its input: what it is sent piles up in the pty (raw, so the line discipline keeps it). */
@@ -378,6 +384,27 @@ describe.skipIf(!built || process.platform !== "linux")("the Rust PTY host under
       await host.proc.exited;
     }
   }, 30_000);
+
+  it("keeps a flood of tiny and empty input frames a command does not read within the limit, and still takes control frames", async () => {
+    const host = direct(UNREAD);
+    try {
+      await host.until("READY", "READY");
+      const pairs = `${JSON.stringify({ t: "i", d: "a" })}\n${JSON.stringify({ t: "i", d: "" })}\n`.repeat(4096);
+      for (let sent = 0; sent < 1_500_000; sent += 4096) {
+        host.proc.stdin.write(pairs);
+        await host.proc.stdin.flush();
+      }
+      host.proc.stdin.write(RESIZE);
+      await host.proc.stdin.flush();
+      await host.until("the resize", "WINCH 60x10");
+      expect(host.peakMiB()).toBeLessThan(48);
+      // one line for the overflow, not one per frame dropped
+      expect(host.errorLines()).toBeLessThanOrEqual(2);
+    } finally {
+      host.proc.kill();
+      await host.proc.exited;
+    }
+  }, 60_000);
 
   it("kills the command's process group when the host aborts", async () => {
     const tag = sleepTag();
