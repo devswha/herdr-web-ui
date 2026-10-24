@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -47,6 +47,8 @@ function runRunner(options: {
   ghTokenExitCode?: number;
   dockerExitCode?: number;
   failedSlot?: number;
+  /** "present" writes a host env file and passes it, "missing" passes a path that does not exist */
+  envFile?: "present" | "missing";
 } = {}) {
   const tempDir = mkdtempSync(join(tmpdir(), "herdr-self-hosted-runner-test-"));
   const binDir = join(tempDir, "bin");
@@ -94,6 +96,8 @@ esac
 `);
     chmodSync(join(binDir, "gh"), 0o755);
     chmodSync(join(binDir, "docker"), 0o755);
+    const envFile = join(tempDir, "host.env");
+    if (options.envFile === "present") writeFileSync(envFile, "CHECK_HOST_MAX_RUNS=6\n");
 
     const result = spawnSync("bash", [
       script,
@@ -102,6 +106,7 @@ esac
       "--once",
       "--count",
       String(options.count ?? 1),
+      ...(options.envFile ? ["--env-file", envFile] : []),
     ], {
       encoding: "utf8",
       timeout: 10_000,
@@ -115,7 +120,8 @@ esac
       },
     });
     expect(result.error).toBeUndefined();
-    return { result, calls: readFileSync(logPath, "utf8") };
+    // a launcher that refused its arguments ran no gh or docker command, so wrote no log
+    return { result, calls: existsSync(logPath) ? readFileSync(logPath, "utf8") : "", envFile };
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
@@ -133,6 +139,25 @@ describe.skipIf(process.platform === "win32")("self-hosted runner launcher", () 
     expect(dockerRun).not.toContain("--cpus");
     expect(dockerRun).not.toContain("--memory");
     expect(dockerRun).toContain("--shm-size 2g");
+  });
+
+  it("hands a host env file to every runner container, never to the network namespace one", () => {
+    const { result, calls, envFile } = runRunner({ count: 2, envFile: "present" });
+    expect(result.status).toBe(0);
+    const lines = calls.split("\n");
+    const runners = lines.filter((call) => runnerRun.test(call));
+    expect(runners).toHaveLength(2);
+    // before the image: after it, docker would take it as the container's command
+    for (const call of runners) expect(call).toContain(`--env-file ${envFile} herdr-ci-runner:local`);
+    expect(lines.filter((call) => call.startsWith("docker run -d ")).every((call) => !call.includes("--env-file"))).toBe(true);
+    expect(runRunner().calls).not.toContain("--env-file");
+  });
+
+  it("refuses a host env file it cannot read before starting anything", () => {
+    const { result, calls } = runRunner({ envFile: "missing" });
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain("--env-file");
+    expect(calls).not.toContain("docker run");
   });
 
   it("propagates a one-shot Docker failure status", () => {

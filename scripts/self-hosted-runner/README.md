@@ -75,6 +75,45 @@ On the maintainer PC the launcher runs as the systemd user unit `ovis-ci-runner.
 `check.ts`'s shared slots still cap its herdr-backed lanes at three. Copy the directory again and
 restart the unit after changing these files.
 
+## Per-host limits
+
+`ci.yml` sets the self-hosted values for a 32-core PC, and a workflow cannot read its runner's
+environment to choose others. A host that can take more says so in an env file (`NAME=value` per
+line) that `run.sh --env-file FILE` hands to every runner container; `scripts/check.ts` lets these
+replace the workflow's values for the run, and a host without the file keeps `ci.yml`'s:
+
+| Host variable | Replaces | Used by |
+| --- | --- | --- |
+| `CHECK_HOST_MAX_RUNS` | `CHECK_MAX_RUNS` (1 to 8) | herdr-backed lanes of every runner of the host |
+| `CHECK_HOST_TEST_SHARDS` | `HERDR_TEST_SHARDS` | Integration tests |
+| `CHECK_HOST_BROWSER_WORKERS` | `BROWSER_WORKERS` | both browser jobs (capped at their script count) |
+| `CHECK_HOST_UNIT_WORKERS` | `UNIT_TEST_WORKERS` | Fast checks |
+
+Every runner of a host must read the same file, since they share the slots. Keep it outside this
+directory (`~/.config/ovis-ci-runner/host.env`), so copying the directory again leaves it alone.
+Docker reads each value literally: `CHECK_HOST_MAX_RUNS="4"` keeps the quotes and the run refuses
+it. Every job can read the file's values from its environment, so it never holds a secret. Keep
+`CHECK_HOST_TEST_SHARDS` at 9 or less: check.ts sizes the herdr socket paths for nine shards.
+
+The ThinkStation P620 (64 cores / 128 threads, 30 GiB) runs `--count 10 --env-file
+%h/.config/ovis-ci-runner/host.env` with:
+
+```sh
+CHECK_HOST_MAX_RUNS=4
+CHECK_HOST_TEST_SHARDS=6
+CHECK_HOST_BROWSER_WORKERS=10
+CHECK_HOST_UNIT_WORKERS=8
+```
+
+Memory, not CPU, bounds it. Measured there with three runners and `ci.yml`'s values, the CPU stayed
+over 90% idle while Browser regression (other scripts) held 2-4 GiB with one script's spike to
+9.3 GiB, Browser regression (ui-regression) 2.6-4.5 GiB and Integration tests 1.6-2.7 GiB; the
+host peaked at 14.6 of 30 GiB; Fast checks peaked at 0.6 GiB. Those jobs (all but Fast checks)
+run at most `CHECK_HOST_MAX_RUNS` at once, however many runners wait for a slot, so the other
+runners hold only Fast checks and the setup steps before a slot. More browser workers and shards
+raise each job's memory; the values above were chosen from these numbers, and its memory is
+checked again with them in place.
+
 A manual run can override the variable with the `self_hosted_labels` workflow_dispatch input. Fork PRs always use `ubuntu-24.04`; Windows/macOS jobs, `remote-bundles.yml` and `windows-install.yml` stay GitHub-hosted.
 
 ## Security model

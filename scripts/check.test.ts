@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import type { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
-import { CI_NODE_MAJOR, MAX_LOCK_PORT, MAX_RUNS_LIMIT, acquire, acquireWaiting, checkoutIdentity, describeGroup, describeHolders, endGroup, isolate, lock, lockPort, maxRuns, needsLock, plan, sanitizeCommand, stopSessions, teardown, waitSeconds, warnNodeVersionMismatch } from "./check.ts";
+import { CI_NODE_MAJOR, MAX_LOCK_PORT, MAX_RUNS_LIMIT, acquire, acquireWaiting, applyHostLimits, checkoutIdentity, describeGroup, describeHolders, endGroup, isolate, lock, lockPort, maxRuns, needsLock, plan, sanitizeCommand, stopSessions, teardown, waitSeconds, warnNodeVersionMismatch } from "./check.ts";
 
 const made: string[] = [];
 afterEach(() => { for (const path of made.splice(0)) rmSync(path, { recursive: true, force: true }); });
@@ -473,6 +473,33 @@ describe("slots", () => {
     expect(maxRuns({ CHECK_MAX_RUNS: "1" }, 32)).toBe(1);
     expect(maxRuns({ CHECK_MAX_RUNS: "8" }, 4)).toBe(8);
     for (const value of ["0", "9", "-1", "1.5", "two", " 3"]) expect(() => maxRuns({ CHECK_MAX_RUNS: value }, 32)).toThrow("CHECK_MAX_RUNS");
+  });
+
+  it("lets a CI host's own limits replace the workflow's, and leaves them when the host names none", () => {
+    const workflow = { CHECK_MAX_RUNS: "3", HERDR_TEST_SHARDS: "4", BROWSER_WORKERS: "6", UNIT_TEST_WORKERS: "4" };
+    const host: Record<string, string | undefined> = { ...workflow, CHECK_HOST_MAX_RUNS: "6", CHECK_HOST_TEST_SHARDS: "8", CHECK_HOST_BROWSER_WORKERS: "12", CHECK_HOST_UNIT_WORKERS: "" };
+    applyHostLimits(host);
+    expect(host).toMatchObject({ CHECK_MAX_RUNS: "6", HERDR_TEST_SHARDS: "8", BROWSER_WORKERS: "12", UNIT_TEST_WORKERS: "4" });
+    expect(maxRuns(host, 4)).toBe(6);
+    const plain: Record<string, string | undefined> = { ...workflow };
+    applyHostLimits(plain);
+    expect(plain).toEqual(workflow);
+    const bad: Record<string, string | undefined> = { CHECK_MAX_RUNS: "3", CHECK_HOST_MAX_RUNS: "12" };
+    applyHostLimits(bad);
+    expect(() => maxRuns(bad, 32)).toThrow("CHECK_MAX_RUNS");
+  });
+
+  it("applies a CI host's limits before a run takes a slot", () => {
+    // the workflow's 3 is valid; only the host's 12, applied by main(), stops the run, before any herdr starts
+    const env: Record<string, string | undefined> = { ...process.env, CHECK_MAX_RUNS: "3", CHECK_HOST_MAX_RUNS: "12" };
+    delete env["CHECK_DIR"];
+    delete env["CHECK_REPORT"];
+    const result = spawnSync(process.execPath, [fileURLToPath(new URL("./check.ts", import.meta.url)), "run", "--", "true"], {
+      env, encoding: "utf8", timeout: 30_000,
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain("CHECK_MAX_RUNS must be a whole number from 1 to 8, not \"12\"");
   });
 
   it("refuses the paused contender when an earlier holder turns over to its checkout", async () => {
