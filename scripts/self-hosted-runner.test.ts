@@ -48,7 +48,9 @@ function runRunner(options: {
   dockerExitCode?: number;
   failedSlot?: number;
   /** "present" writes a host env file and passes it, "missing" passes a path that does not exist */
-  envFile?: "present" | "missing" | "bare";
+  envFile?: "present" | "missing" | "bare" | "secret";
+  /** a grep on PATH that fails with a read error (exit 2), as on a file that passes -r but cannot be read */
+  grepReadError?: boolean;
 } = {}) {
   const tempDir = mkdtempSync(join(tmpdir(), "herdr-self-hosted-runner-test-"));
   const binDir = join(tempDir, "bin");
@@ -99,6 +101,11 @@ esac
     const envFile = join(tempDir, "host.env");
     if (options.envFile === "present") writeFileSync(envFile, "# P620\n\nCHECK_HOST_MAX_RUNS=6\nCHECK_HOST_BROWSER_WORKERS=10\n");
     if (options.envFile === "bare") writeFileSync(envFile, "CHECK_HOST_MAX_RUNS=6\nGH_TOKEN\n");
+    if (options.envFile === "secret") writeFileSync(envFile, "# P620\nCHECK_HOST_MAX_RUNS=6\nGH_TOKEN=ghp_synthetic_secret\n");
+    if (options.grepReadError) {
+      writeFileSync(join(binDir, "grep"), "#!/bin/sh\necho 'grep: read error' >&2\nexit 2\n");
+      chmodSync(join(binDir, "grep"), 0o755);
+    }
 
     const result = spawnSync("bash", [
       script,
@@ -164,7 +171,23 @@ describe.skipIf(process.platform === "win32")("self-hosted runner launcher", () 
   it("refuses a host env file line that would copy the launcher's own environment into the jobs", () => {
     const { result, calls } = runRunner({ envFile: "bare" });
     expect(result.status).toBe(2);
-    expect(result.stderr).toContain("2:GH_TOKEN");
+    expect(result.stderr).toContain("refused line(s): 2\n");
+    expect(calls).not.toContain("docker run");
+  });
+
+  it("names a refused line by its number only, never its value", () => {
+    const { result, calls } = runRunner({ envFile: "secret" });
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain("refused line(s): 3\n");
+    expect(result.stderr).not.toContain("ghp_synthetic_secret");
+    expect(result.stderr).not.toContain("GH_TOKEN");
+    expect(calls).not.toContain("docker run");
+  });
+
+  it("refuses to start when it cannot read the host env file to check it", () => {
+    const { result, calls } = runRunner({ envFile: "present", grepReadError: true });
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain("could not read");
     expect(calls).not.toContain("docker run");
   });
 

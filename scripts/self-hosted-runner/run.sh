@@ -39,12 +39,16 @@ ENV_ARGS=()
 if [ -n "$ENV_FILE" ]; then
   [ -f "$ENV_FILE" ] && [ -r "$ENV_FILE" ] || { echo "--env-file: cannot read $ENV_FILE" >&2; exit 2; }
   # Only CHECK_HOST_* numbers: docker copies a bare NAME line from this launcher's own environment
-  # (GH_TOKEN, say) into every container, where any job could read it.
-  if bad="$(grep -nvE '^[[:space:]]*(#.*)?$|^CHECK_HOST_(MAX_RUNS|TEST_SHARDS|BROWSER_WORKERS|UNIT_WORKERS)=[0-9]+$' "$ENV_FILE")"; then
-    echo "--env-file: $ENV_FILE may hold only CHECK_HOST_*=<number> lines; refused:" >&2
-    printf '%s\n' "$bad" >&2
-    exit 2
-  fi
+  # (GH_TOKEN, say) into every container, where any job could read it. A refused line is named by its
+  # number only: its value may be a credential, and stderr ends up in the journal.
+  status=0
+  bad="$(grep -nvE '^[[:space:]]*(#.*)?$|^CHECK_HOST_(MAX_RUNS|TEST_SHARDS|BROWSER_WORKERS|UNIT_WORKERS)=[0-9]+$' "$ENV_FILE")" || status=$?
+  case "$status" in
+    0) echo "--env-file: $ENV_FILE may hold only CHECK_HOST_*=<number> lines; refused line(s): $(printf '%s\n' "$bad" | cut -d: -f1 | paste -sd, -)" >&2
+       exit 2 ;;
+    1) ;; # every line is allowed
+    *) echo "--env-file: could not read $ENV_FILE to check it" >&2; exit 2 ;;
+  esac
   ENV_ARGS=(--env-file "$ENV_FILE")
 fi
 
