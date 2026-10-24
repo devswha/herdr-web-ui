@@ -52,6 +52,8 @@ export interface TerminalMountDeps {
   clearModifiers: () => void;
   clipboardTimerRef: RefObject<number | null>;
   coarseRef: RefObject<boolean>;
+  /** sends a pending Safari syllable or dictation phrase as an IME commit, ahead of a chord */
+  commitPendingText: () => void;
   composingRef: RefObject<boolean>;
   compositionCommitPendingRef: RefObject<boolean>;
   deferAttachRef: RefObject<(pane: string) => boolean>;
@@ -148,12 +150,14 @@ export interface TerminalMountDeps {
 }
 
 export function useTerminalMount(deps: TerminalMountDeps): void {
-  const { activeRef, barKeyRef, baseFontRef, cachedRef, cachedReleaseRef, cancelLeaveRef, chatMountedRef, chatOutputRef, chatViewRef, clearModifiers, clipboardTimerRef, coarseRef, composingRef, compositionCommitPendingRef, deferAttachRef, draftHeldForRef, draftPaneRef, endedRef, findOpenRef, fitRef, fittedRef, fixedGridRef, followCursorRef, followRef, frameGateRef, heldRef, hostRef, hyperlinksRef, keyboardHoldsRef, leaveRef, lineScroll, machineId, machineSessions, mirroredRef, modifiersRef, modifyOtherKeysRef, narrowFontRef, noteClipboard, observeRef, onChatSuggestion, onInputRowFrameRef, onRoleAckRef, onServerMessageRef, openFileRef, openWebRef, osc52AllowedRef, outputTargetRef, palette, paneRef, pendingEpochRef, pendingScopeRef, pendingSubmissionsRef, pinchBadgeRef, pinchStatusRef, presentationRef, presentedRef, reassertIfStaleRef, reattachRef, redrawGreeting, releaseAwayRef, releaseRef, releasedRef, retireOutputRef, secretRef, sessionRef, setChatInvalidation, setChatRefresh, setChatSent, setComposing, setConnected, setConnectedBefore, setConversationPushes, setDraft, setEnded, setHeld, setInputError, setInputReady, setObserving, setOutputError, setOutputReady, setParsedTarget, setReleased, setSecret, setSelectionQuote, setTerminal, setUnsupported, setWatching, sharedGridRef, shortcutSettings, shownRef, sizesPty, socketRef, stackRef, stalledRef, stopKeyRef, submitRetention, t, tRef, termRef, terminalFontSize, theme, updateSettings, uploadFileRef, watchingRef, wheelStateRef } = deps;
+  const { activeRef, barKeyRef, baseFontRef, cachedRef, cachedReleaseRef, cancelLeaveRef, chatMountedRef, chatOutputRef, chatViewRef, clearModifiers, clipboardTimerRef, coarseRef, commitPendingText, composingRef, compositionCommitPendingRef, deferAttachRef, draftHeldForRef, draftPaneRef, endedRef, findOpenRef, fitRef, fittedRef, fixedGridRef, followCursorRef, followRef, frameGateRef, heldRef, hostRef, hyperlinksRef, keyboardHoldsRef, leaveRef, lineScroll, machineId, machineSessions, mirroredRef, modifiersRef, modifyOtherKeysRef, narrowFontRef, noteClipboard, observeRef, onChatSuggestion, onInputRowFrameRef, onRoleAckRef, onServerMessageRef, openFileRef, openWebRef, osc52AllowedRef, outputTargetRef, palette, paneRef, pendingEpochRef, pendingScopeRef, pendingSubmissionsRef, pinchBadgeRef, pinchStatusRef, presentationRef, presentedRef, reassertIfStaleRef, reattachRef, redrawGreeting, releaseAwayRef, releaseRef, releasedRef, retireOutputRef, secretRef, sessionRef, setChatInvalidation, setChatRefresh, setChatSent, setComposing, setConnected, setConnectedBefore, setConversationPushes, setDraft, setEnded, setHeld, setInputError, setInputReady, setObserving, setOutputError, setOutputReady, setParsedTarget, setReleased, setSecret, setSelectionQuote, setTerminal, setUnsupported, setWatching, sharedGridRef, shortcutSettings, shownRef, sizesPty, socketRef, stackRef, stalledRef, stopKeyRef, submitRetention, t, tRef, termRef, terminalFontSize, theme, updateSettings, uploadFileRef, watchingRef, wheelStateRef } = deps;
 
     // Where this terminal is: its pane, and whether it is active, presented, shown and not the chat view.
     // Counted on every commit that changes it: an explicit copy still waiting for herdr's text is
     // cancelled when the user leaves, even to come back (the copy made on release still finishes).
     const viewRef = useRef({ key: "", changes: 0 });
+    /** set while text composed before input was ready is committed: it goes to the draft, not the pane */
+    const holdPendingTextRef = useRef(false);
     useLayoutEffect(() => {
       const key = JSON.stringify([paneRef.current, activeRef.current, presentedRef.current, shownRef.current, chatViewRef.current]);
       if (key === viewRef.current.key) return;
@@ -312,7 +316,7 @@ export function useTerminalMount(deps: TerminalMountDeps): void {
           const chord = terminalChord(physicalKey(event.key, event.code), combined);
           const navigation = navigationSequence(event.key, combined);
           if (navigation !== null) {
-            if (event.type === "keydown") { event.preventDefault(); term.input(navigation); }
+            if (event.type === "keydown") { event.preventDefault(); commitPendingText(); term.input(navigation); }
             return false;
           }
           // A real clipboard shortcut still belongs to the browser. Soft Ctrl+V
@@ -323,6 +327,7 @@ export function useTerminalMount(deps: TerminalMountDeps): void {
           if (chord !== null && !clipboard) {
             if (event.type === "keydown") {
               event.preventDefault();
+              commitPendingText();
               typedChord = chord;
               // Go through the same readiness/role/secret checks as other input.
               term.input(event.key);
@@ -882,6 +887,30 @@ export function useTerminalMount(deps: TerminalMountDeps): void {
       let deferredAttach = false;
       // set by a disconnect: the first frame after the reconnect tries a preference that could not be read again
       let rereadHerdrUi = false;
+      // Text composed while the pane could not take input (a dictated phrase still in the editor)
+      // was typed offline: when input returns before its commit key, it goes to the draft and
+      // waits for Send or Discard like the rest, never to the pane by the next key.
+      let inputWasReady = false;
+      const noteInputReady = () => {
+        const pane = paneRef.current;
+        if (!pane) return;
+        const ready = socket.canInput(pane);
+        if (ready && !inputWasReady) {
+          holdPendingTextRef.current = true;
+          try { commitPendingText(); } finally { holdPendingTextRef.current = false; }
+        }
+        inputWasReady = ready;
+        setInputReady(ready);
+      };
+      // A refusal shorter than the readiness poll (a liveness probe whose pong comes back within
+      // it) still counts: text entering the editor while input is refused marks the refusal, so
+      // the frame that ends it (the pong) commits that text to the draft, not the next key to the pane.
+      const noteRefusedText = () => {
+        const pane = paneRef.current;
+        if (pane && !socket.canInput(pane)) inputWasReady = false;
+      };
+      const editor = term.textarea;
+      editor?.addEventListener("input", noteRefusedText, true);
       const off = session.on((message, sent) => {
         onServerMessageRef.current?.(message);
         if (rereadHerdrUi) {
@@ -915,7 +944,7 @@ export function useTerminalMount(deps: TerminalMountDeps): void {
           && chatMountedRef.current && document.visibilityState !== "hidden") {
           setChatInvalidation((current) => current + 1);
         }
-        if (paneRef.current) setInputReady(socket.canInput(paneRef.current));
+        noteInputReady();
         if (message.type === "input-ready" || message.type === "output-recovering") {
           // output-recovering: this client joined after the stream ended, so the replay is the screen from before
           if (message.type === "output-recovering" || message.ready === false) {
@@ -1001,6 +1030,9 @@ export function useTerminalMount(deps: TerminalMountDeps): void {
           // interact client reclaim the shared grid it stopped owning (a tab out of use
           // reclaims it when the user comes back: the refit below)
           const nowObserving = message.mode === "observe";
+          // text still pending in the editor was composed without the role: it is committed while
+          // observing still refuses it, so the next accepted key cannot carry it into the pane
+          if (observeRef.current && !nowObserving) commitPendingText();
           observeRef.current = nowObserving;
           // no fit runs while observing: a font shrunk for this client's own grid would stay
           if (nowObserving) term.options.fontSize = baseFontRef.current;
@@ -1106,6 +1138,7 @@ export function useTerminalMount(deps: TerminalMountDeps): void {
         outputRecovering = false;
         retireOutputRef.current();
         setOutputReady(false);
+        inputWasReady = false;
         setInputReady(false);
         setConnected(false);
         setConversationPushes(false);
@@ -1121,7 +1154,7 @@ export function useTerminalMount(deps: TerminalMountDeps): void {
       const poll = window.setInterval(() => {
         setConnected(socket.connected);
         setConversationPushes(socket.conversationPushes());
-        if (paneRef.current) setInputReady(socket.canInput(paneRef.current));
+        noteInputReady();
       }, 1000);
 
       // onKey runs after xterm drains a pending IME commit, immediately before the
@@ -1249,7 +1282,7 @@ export function useTerminalMount(deps: TerminalMountDeps): void {
           }
           return;
         }
-        if (socket.sendInput(current, input, stopKey && input === "\u001b")) return;
+        if (!holdPendingTextRef.current && socket.sendInput(current, input, stopKey && input === "\u001b")) return;
         if (secret) {
           const t = tRef.current;
           setInputError(t("Not sent: the terminal is not ready, and a password is never held for later."));
@@ -1843,6 +1876,7 @@ export function useTerminalMount(deps: TerminalMountDeps): void {
         host.removeEventListener("dragover", onDragOver);
         host.removeEventListener("drop", onDrop);
         offDisconnect();
+        editor?.removeEventListener("input", noteRefusedText, true);
         // frames still waiting are a retired terminal's: nothing writes or acknowledges them
         outputFrames.length = 0;
         parsingReplay = false;
