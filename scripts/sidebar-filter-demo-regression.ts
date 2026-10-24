@@ -583,6 +583,43 @@ async function selectedNonMatch(browser: Browser, scene: Scene): Promise<void> {
   } finally { await context.close(); }
 }
 
+async function openWorktreeUnderFilter(browser: Browser, scene: Scene): Promise<void> {
+  const name = `${scene.phone ? "phone" : "desktop"} ${scene.theme}`;
+  const probe = await newPage(browser, scene, `pane=${encodeURIComponent(WEB)}`);
+  const repoKey = await repoKeyOf(probe.page, "w1C");
+  await probe.context.close();
+  const foldKey = `ovis:worktree-group-collapsed:local:${repoKey}`;
+  const { context, page, errors } = await newPage(browser, scene, `pane=${encodeURIComponent(WEB)}`, { [foldKey]: "1" });
+  try {
+    const input = filterInput(page);
+    await input.click();
+    await input.pressSequentially("checkout-api");
+    await page.waitForFunction(() => document.querySelector('.workspace-group[data-workspace="w1C"]') !== null);
+    // a checkout opened from the group's dialog under the filter opens the group for the filter's time only
+    // the group's menu: a right-click on a desktop, its ⋯ on a phone (the demo's PCs share workspace ids)
+    const head = page.getByRole("region", { name: "PC Laptop" }).locator('.workspace-group[data-workspace="w1C"] > .workspace-header').first();
+    if (scene.phone) {
+      // a phone's menu is a sheet of buttons
+      await head.locator(".row-menu-toggle").tap();
+      await page.getByRole("dialog").getByRole("button", { name: "Open worktree…", exact: true }).tap();
+    } else {
+      await head.locator(".workspace-select").click({ button: "right" });
+      await page.getByRole("menu").getByRole("menuitem", { name: "Open worktree…", exact: true }).click();
+    }
+    const dialog = page.locator(".worktree-modal");
+    await dialog.waitFor();
+    await dialog.locator(".worktree-row:not([disabled])").first().click();
+    await dialog.waitFor({ state: "detached" });
+    assert.equal((await storageView(page)).local[foldKey], "1", `${name}: opening a checkout under the filter writes no fold`);
+    if (scene.phone && await page.locator(".sidebar.is-open").count() === 0) await openDrawer(page);
+    if (await input.inputValue() !== "") await clearButton(page).click();
+    await waitRoster(page, "the group folded again as saved", (view) => view.groups[0]!.workspaces.find((row) => row.id === "w1C")?.folded === true);
+    assert.equal((await storageView(page)).local[foldKey], "1", `${name}: cleared, the saved fold is still there`);
+    assert.deepEqual(errors, [], `${name}: no uncaught browser errors`);
+    console.log(`PASS ${name}: a checkout opened from its dialog under the filter leaves the saved fold, which is back when the filter is cleared`);
+  } finally { await context.close(); }
+}
+
 async function liveOfflineRoster(browser: Browser, scene: Scene): Promise<void> {
   const name = `${scene.phone ? "phone" : "desktop"} ${scene.theme}`;
   const pins = JSON.stringify([`local:workspace:w1K`, `build:${panes.omp}`]);
@@ -885,6 +922,7 @@ try {
         await selectedNonMatch(browser, scene);
         await liveOfflineRoster(browser, scene);
         await foldTransitions(browser, scene);
+        await openWorktreeUnderFilter(browser, scene);
         await observeOnly(browser, scene);
         await composition(browser, scene);
       }

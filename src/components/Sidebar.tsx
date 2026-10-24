@@ -817,7 +817,8 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions, watching = 
         rememberOpened(opened);
         revealOpenedWorkspace.current = opened.workspace_id;
         const repoKey = worktreeDialog.workspace.worktree?.repo_key;
-        if (repoKey) setWorktreeCollapsed(repoKey, false);
+        // opened under a filter, the group opens for the filter's time only: the saved fold stays as it was
+        if (repoKey) toggleWorktrees(repoKey, true);
         setWorktreeDialog(null);
         if (opened.agent_started === true) actions.agentStarted(machineId, opened.pane_id);
         actions.selectPane(opened.pane_id);
