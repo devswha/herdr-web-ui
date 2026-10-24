@@ -600,7 +600,8 @@ process.stdout.write(Array.from({ length: 400 }, (_, n) => "app history " + n + 
     assert.equal(result.wheelsOutsideFrames, 0, `${result.kind} ${result.gesture} rep ${result.rep}: every report goes out from an animation frame`);
     assert.ok((result.maxDispatchesPerFrame as number) <= TOUCH_WHEEL_REPORTS_PER_FRAME, `${result.kind} ${result.gesture} rep ${result.rep}: at most ${TOUCH_WHEEL_REPORTS_PER_FRAME} reports per frame, saw ${result.maxDispatchesPerFrame}`);
     assert.ok((result.peakQueue as number) <= TOUCH_WHEEL_QUEUE_LIMIT, `${result.gesture}: at most ${TOUCH_WHEEL_QUEUE_LIMIT} reports waiting, saw ${result.peakQueue}`);
-    if (result.screens === 2) assert.ok((result.drainAfterTouchendMs as number) <= DRAIN_LIMIT_MS, `${result.kind} ${result.gesture} rep ${result.rep}: drained ${result.drainAfterTouchendMs} ms after touchend`);
+    // the recorded pass runs under the screencast, which costs frames: its drain time is not measured
+    if (result.screens === 2 && !result.recorded) assert.ok((result.drainAfterTouchendMs as number) <= DRAIN_LIMIT_MS, `${result.kind} ${result.gesture} rep ${result.rep}: drained ${result.drainAfterTouchendMs} ms after touchend`);
   }
   for (const result of measured.filter((result) => result.speed === "fast" && result.screens === 2)) {
     assert.ok(!breach(result), `${result.kind} fast two-screen rep ${result.rep}: long task ${result.maxLongtaskMs} ms, frame gap ${result.maxFrameGapMs} ms`);
