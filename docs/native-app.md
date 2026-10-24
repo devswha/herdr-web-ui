@@ -4,9 +4,10 @@ Status: Phase 1 step 2 built for iOS (checked in a simulator) and Android (check
 2026-10-19. To run them, see [The app (app/)](#the-app-app) and
 [The Android app](#the-android-app). Step 3, the push relay, is built in
 [`push-relay/`](../push-relay/README.md) with its tests, 2026-10-23, for iOS (APNs) and Android
-(FCM), and not deployed yet. Steps 4 and 5, the client's push through the app and the iOS
+(FCM), and deployed at `push.ovis.sh` on 2026-10-24, where its APNs and FCM credentials passed
+their authentication tests. Steps 4 and 5, the client's push through the app and the iOS
 Notification Service Extension, are built, 2026-10-24 (see [Push in the app](#push-in-the-app));
-a real push waits for the relay's deploy.
+a push received on a real device is still to be checked. iOS 1.0 (build 2) is in App Review.
 
 Ovis ships as a store app for iOS first, Android later. The goal is reach: the app is
 found in the App Store and installs in one tap, where the web app needs "Add to Home Screen". It
