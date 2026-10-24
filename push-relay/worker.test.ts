@@ -535,6 +535,24 @@ describe("push relay: Android (FCM)", () => {
     expect(r.calls[2]!.headers["authorization"]).toBe("Bearer ya29.test-2");
   });
 
+  test("holds an FCM endpoint, and a phone across its FCM endpoints, to the same limits, before FCM", async () => {
+    const r = relay();
+    const start = new Date();
+    const endpoints = [await register(r, fcm, start), await register(r, fcm, start), await register(r, fcm, start)];
+    for (let i = 0; i < RATE_LIMIT; i++) expect((await r.handle(pushRequest(endpoints[0]!).request, start)).status).toBe(201);
+    const limited = await r.handle(pushRequest(endpoints[0]!).request, new Date(start.getTime() + 100_000));
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get("retry-after")).toBe(String(RATE_WINDOW_SECONDS - 100));
+    for (let i = 0; i < DEVICE_RATE_LIMIT - RATE_LIMIT; i++) expect((await r.handle(pushRequest(endpoints[1]!).request, start)).status).toBe(201);
+    // a fresh endpoint of the same phone buys no more pushes
+    const phoneLimited = await r.handle(pushRequest(endpoints[2]!).request, new Date(start.getTime() + 60_000));
+    expect(phoneLimited.status).toBe(429);
+    expect(phoneLimited.headers.get("retry-after")).toBe(String(RATE_WINDOW_SECONDS - 60));
+    expect(r.rows().find((row) => row["id"] === idOf(endpoints[2]!))!["window_count"]).toBe(0);
+    expect(r.calls).toHaveLength(DEVICE_RATE_LIMIT);
+    expect((await r.handle(pushRequest(endpoints[2]!).request, new Date(start.getTime() + RATE_WINDOW_SECONDS * 1000))).status).toBe(201);
+  });
+
   test("a token FCM calls gone or invalid deletes its FCM endpoints and answers 410, leaving any APNs ones", async () => {
     for (const [status, errorCode, fields] of [
       [404, "UNREGISTERED", []], [403, "SENDER_ID_MISMATCH", []],
