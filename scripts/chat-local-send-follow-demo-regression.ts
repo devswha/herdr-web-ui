@@ -219,8 +219,8 @@ try {
       const desktop = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: "en-US" });
       try {
         await desktop.addInitScript((ids) => {
-          localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en" }));
-          for (const id of ids) localStorage.setItem(`herdr-web-ui:view:${id}`, "chat");
+          localStorage.setItem("ovis:settings", JSON.stringify({ language: "en" }));
+          for (const id of ids) localStorage.setItem(`ovis:view:${id}`, "chat");
         }, [PANE, OTHER]);
         const page = await desktop.newPage();
         const errors: string[] = [];
