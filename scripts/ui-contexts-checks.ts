@@ -79,7 +79,8 @@ export async function runUiContextChecks(): Promise<void> {
     const paneB = createdB.root_pane.pane_id;
     await herdrRpc("pane.report_agent", { pane_id: paneB, source: "manual", agent: "codex", state: "idle" });
 
-    server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: root, usage: new UsageService(undefined, []) });
+    // herdr's config is none here, whatever HERDR_CONFIG_PATH the shell passed on: checkTerminalCopy asserts herdr's default
+    server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: root, usage: new UsageService(undefined, []), herdrConfigPath: join(root, "no-herdr-config.toml") });
     const origin = `http://127.0.0.1:${server.port}`;
     browser = await chromium.launch({
       executablePath: chromePath(),
