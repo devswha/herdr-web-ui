@@ -1,8 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { createElement } from "react";
+import { act, create, type ReactTestRenderer } from "react-test-renderer";
 
+import { DEFAULT_ALERTS } from "../../shared/notify-policy.ts";
 import { ensurePushSubscription, pushSupported, removePushSubscription, testDevicePush } from "./push.ts";
 import { ApiError } from "./api.ts";
 import { notificationState, refreshNotificationState, requestNotificationPermission } from "./notifications.ts";
+import { useNotificationSwitch } from "./useAlerts.ts";
 
 /**
  * The device-side subscription flow against a stand-in browser whose PushManager, like
@@ -356,6 +360,85 @@ describe("in the phone app", () => {
     app.calls = [];
     await removePushSubscription();
     expect(app.calls).toEqual(["OvisPush.getSubscription"]);
+  });
+
+  /**
+   * The PC refuses to forget a subscription until `answer` lets it (the PC is unreachable meanwhile).
+   * `nextRefusal`, asked before what triggers it, settles when the next removal is refused.
+   */
+  function pcRefusesRemoval() {
+    const server = globalThis.fetch;
+    let refusal = deferred();
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      if (url !== "/api/push/subscribe" || init?.method !== "DELETE") return server(url, init);
+      refusal.resolve();
+      return new Response(null, { status: 503 });
+    }) as typeof fetch;
+    return {
+      nextRefusal: () => { refusal = deferred(); return refusal.promise; },
+      answer: () => { globalThis.fetch = server; },
+    };
+  }
+
+  // the relay keeps an endpoint the app forgot live: the phone would get this PC's alerts with alerts
+  // off, and nothing left in the app to remove them by
+  it("keeps the app's endpoint when the PC could not forget it, so the next removal still reaches the PC", async () => {
+    const endpoint = await ensurePushSubscription();
+    sent = [];
+    const pc = pcRefusesRemoval();
+    await expect(removePushSubscription()).rejects.toBeInstanceOf(ApiError);
+    expect(app.saved).toBe(endpoint);
+    expect(app.calls).not.toContain("OvisPush.unsubscribe");
+    pc.answer();
+    await removePushSubscription();
+    expect(sent).toEqual([{ url: "/api/push/subscribe", method: "DELETE", body: { endpoint } }]);
+    expect(app.saved).toBeNull();
+  });
+
+  it("tries a removal the PC did not take again at load and when the app comes back into view", async () => {
+    const endpoint = await ensurePushSubscription();
+    const pc = pcRefusesRemoval();
+    await expect(removePushSubscription()).rejects.toBeInstanceOf(ApiError);
+    sent = [];
+    function Page({ alertsOn }: { alertsOn: boolean }) {
+      useNotificationSwitch({ updateSettings: () => {}, locked: false, notifications: "granted", setNotifications: () => {}, alerts: DEFAULT_ALERTS,
+        alertsRef: { current: DEFAULT_ALERTS }, alertsOn, setPushOn: () => {} });
+      return null;
+    }
+    // the app forgets the endpoint last, once the PC has: that is a retry's removal done
+    const forgotten = deferred();
+    const capacitor = (globalThis as unknown as { Capacitor: { nativePromise: (plugin: string, method: string, options?: Record<string, unknown>) => Promise<unknown> } }).Capacitor;
+    const native = capacitor.nativePromise;
+    capacitor.nativePromise = async (plugin, method, options) => {
+      const answer = await native(plugin, method, options);
+      if (method === "unsubscribe") forgotten.resolve();
+      return answer;
+    };
+    const view = Object.assign(new EventTarget(), { visibilityState: "visible" });
+    const saved = (name: string) => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const;
+    const restore = [saved("document"), saved("IS_REACT_ACT_ENVIRONMENT")];
+    Object.defineProperty(globalThis, "document", { configurable: true, value: view });
+    Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", { configurable: true, value: true });
+    let page: ReactTestRenderer | null = null;
+    try {
+      // the PC is still out of reach as the app loads: that try is refused too, and the endpoint stays
+      const refusedAtLoad = pc.nextRefusal();
+      await act(async () => { page = create(createElement(Page, { alertsOn: false })); });
+      await refusedAtLoad;
+      expect(app.saved).toBe(endpoint);
+      // the PC answers again, and the app comes back into view (one of the alerts opened it)
+      pc.answer();
+      view.dispatchEvent(new Event("visibilitychange"));
+      await forgotten.promise;
+      expect(sent).toEqual([{ url: "/api/push/subscribe", method: "DELETE", body: { endpoint } }]);
+      expect(app.saved).toBeNull();
+    } finally {
+      await act(async () => { page?.unmount(); });
+      for (const [name, descriptor] of restore) {
+        if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+        else delete (globalThis as Record<string, unknown>)[name];
+      }
+    }
   });
 
   it("tests the app's kept subscription without making one", async () => {

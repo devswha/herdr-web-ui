@@ -114,7 +114,10 @@ public class OvisPushPlugin extends Plugin {
         else call.reject("Notifications are off for Ovis", "permission");
     }
 
-    /** Forgets this PC's endpoint here; the PC drops it when it unsubscribes, or at its first push after. */
+    /**
+     * Forgets this PC's endpoint here. The client asks once the PC has dropped the subscription: the
+     * relay keeps the endpoint live, so forgetting it before would leave the PC pushing to this phone.
+     */
     @PluginMethod
     public void unsubscribe(PluginCall call) {
         String origin = getBridge().getServerUrl();

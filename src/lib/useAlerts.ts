@@ -229,6 +229,19 @@ export function useNotificationSwitch({ updateSettings, locked, notifications, s
     await removePushSubscription().catch((err) => console.warn("could not drop the push subscription", err));
   }, [updateSettings]);
 
+  // in the app, alerts turned off while the PC could not be told keep the app's endpoint (lib/push.ts),
+  // and the phone goes on getting this PC's alerts until the PC forgets it. With alerts off the removal
+  // is tried again at load and whenever the app comes back into view (as when one of those alerts opens
+  // it); it does nothing once the app holds no endpoint for this PC
+  useEffect(() => {
+    if (locked !== false || alertsOn || !hasNativePlugin(PUSH_PLUGIN)) return;
+    const retry = () => { removePushSubscription().catch((err) => console.warn("could not drop the push subscription", err)); };
+    const onVisible = () => { if (document.visibilityState === "visible") retry(); };
+    retry();
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [locked, alertsOn]);
+
   // a device that already allowed alerts re-registers on every load: idempotent, and it
   // brings the device back if the server lost its subscriptions; a changed choice of
   // alerts goes the same way
