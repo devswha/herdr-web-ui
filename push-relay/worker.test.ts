@@ -449,8 +449,11 @@ describe("push relay: pushes", () => {
 
 describe("push relay: Android (FCM)", () => {
   const fcm = { service: "fcm", token: FCM_TOKEN };
-  const fcmError = (status: number, errorCode: string) => () =>
-    Response.json({ error: { code: status, details: [{ "@type": "type.googleapis.com/google.firebase.fcm.v1.FcmError", errorCode }] } }, { status });
+  /** an FCM v1 error answer: its FcmError code (if any), and the fields a google.rpc.BadRequest detail names */
+  const fcmError = (status: number, errorCode: string | null, fields: readonly string[] = []) => () => Response.json({ error: { code: status, details: [
+    ...(errorCode ? [{ "@type": "type.googleapis.com/google.firebase.fcm.v1.FcmError", errorCode }] : []),
+    ...(fields.length ? [{ "@type": "type.googleapis.com/google.rpc.BadRequest", fieldViolations: fields.map((field) => ({ field, description: `Invalid value at '${field}'` })) }] : []),
+  ] } }, { status });
 
   test("registers an FCM token as it is, case and all, pinned to the PC's key, and keeps it out of the answer", async () => {
     const r = relay();
@@ -532,14 +535,18 @@ describe("push relay: Android (FCM)", () => {
     expect(r.calls[2]!.headers["authorization"]).toBe("Bearer ya29.test-2");
   });
 
-  test("a token FCM calls gone deletes its FCM endpoints and answers 410, leaving any APNs ones", async () => {
-    for (const [status, errorCode] of [[404, "UNREGISTERED"], [403, "SENDER_ID_MISMATCH"]] as const) {
+  test("a token FCM calls gone or invalid deletes its FCM endpoints and answers 410, leaving any APNs ones", async () => {
+    for (const [status, errorCode, fields] of [
+      [404, "UNREGISTERED", []], [403, "SENDER_ID_MISMATCH", []],
+      // a token that is not one (Google's own example names no field), as APNs' BadDeviceToken
+      [400, "INVALID_ARGUMENT", []], [400, "INVALID_ARGUMENT", ["message.token"]],
+    ] as const) {
       const r = relay();
       // FCM endpoints with the token an APNs endpoint has too: only the FCM ones are gone
       const endpoint = await register(r, { ...fcm, token: TOKEN });
       const second = await register(r, { ...fcm, token: TOKEN, vapid_key: otherPcKey.publicKey });
       await register(r);
-      r.answer(fcmError(status, errorCode));
+      r.answer(fcmError(status, errorCode, fields));
       expect((await r.handle(pushRequest(endpoint).request)).status).toBe(410);
       expect(r.rows().map((row) => row["service"])).toEqual(["apns"]);
       expect((await r.handle(pushRequest(endpoint).request)).status).toBe(404);
@@ -552,7 +559,8 @@ describe("push relay: Android (FCM)", () => {
     const endpoint = await register(r, fcm);
     let first = true;
     r.answer(() => {
-      if (first) { first = false; return fcmError(401, "THIRD_PARTY_AUTH_ERROR")(); }
+      // what FCM answers an expired or revoked access token
+      if (first) { first = false; return Response.json({ error: { code: 401, message: "Request had invalid authentication credentials.", status: "UNAUTHENTICATED" } }, { status: 401 }); }
       return new Response("{}", { status: 200 });
     });
     expect((await r.handle(pushRequest(endpoint).request)).status).toBe(201);
@@ -561,7 +569,10 @@ describe("push relay: Android (FCM)", () => {
 
     for (const [answer, expected] of [
       [fcmError(429, "QUOTA_EXCEEDED"), 429],
-      [fcmError(400, "INVALID_ARGUMENT"), 502],
+      // a field of the relay's message refused, not the token: the token stays
+      [fcmError(400, "INVALID_ARGUMENT", ["message.android.ttl"]), 502],
+      [fcmError(400, "INVALID_ARGUMENT", ["message.token", "message.android.collapse_key"]), 502],
+      [fcmError(400, null, ["message.data[0].value"]), 502],
       [fcmError(503, "UNAVAILABLE"), 502],
       [() => new Response("not json", { status: 500 }), 502],
       [() => { throw new Error("network down"); }, 502],
