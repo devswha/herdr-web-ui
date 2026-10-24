@@ -708,6 +708,8 @@ describe("page files read through the descriptor that was validated", () => {
     mkdirSync(join(hidden, "sub"), { recursive: true });
     writeFileSync(join(hidden, "sub", "f.png"), png("OUTSIDE-SECRET"));
     marked(join(hidden, "sub", "clip.mp4"), "OUTSIDE-SECRET");
+    // a page of the same name there, so only its device and inode tell it from the one opened
+    writeFileSync(join(hidden, "page.html"), "<p>another page</p>");
     const found = fileInfo(page)!;
     // the page's folder is a link to that folder while it is resolved, and the page's own again once it is opened
     const parked = join(root, "parked");
