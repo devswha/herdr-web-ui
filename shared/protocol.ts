@@ -826,7 +826,7 @@ export type ServerMessage =
   | { type: "submit-result"; id: number; pane_id: string; ok: boolean; pending?: PendingMessage; code?: string; message?: string; draft?: string; box?: string }
   | { type: "pending-result"; id: number; pane_id: string; pending_id: string; ok: boolean; code?: string; message?: string }
   /** Owner-only receipt and state; only an explicit removed outcome permits deleting a retained client message. */
-  | { type: "pending-messages"; pane_id: string; messages: PendingMessage[]; removed?: Array<{ id: string; outcome: "sent" | "discarded" }> }
+  | { type: "pending-messages"; pane_id: string; messages: PendingMessage[]; removed?: Array<{ id: string; outcome: "sent" | "discarded" | "consumed" }> }
   | { type: "secret-result"; id: number; pane_id: string; ok: boolean; code?: string }
   /** agent-status push for ANY pane, attached or not (server-side status collector) */
   | { type: "pane-status"; pane_id: string; agent_status: AgentStatus; finish_id?: number; finish_epoch?: string; /** a pane's running background tasks (OmO's, or a Claude Code pane's subagents and commands), when the frame is about them: it changes no status */ background_tasks?: number; /** every frame says it: absent, the pane does not wait on its turn's background work */ background_wait?: true; /** a pane's plan, when the frame is about it (null: it keeps none now); it changes no status */ plan?: PlanSummary | null }

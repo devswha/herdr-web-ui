@@ -49,6 +49,10 @@ const absent = (error: unknown): boolean => (error as { code?: unknown } | null)
  * ancestor is a directory inside the store, both resolved, counts: nothing is read from it,
  * its display id and canonical prospective path keep equally named sessions distinct.
  */
+export function piUnwrittenHeaderId(path: string): string | null {
+  return /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/iu.exec(basename(path))?.[1] ?? null;
+}
+
 export function unwrittenSession(path: string, sessionDir: string): { id: string; path: string } | null {
   if (!isAbsolute(path) || !path.endsWith(".jsonl")) return null;
   let root: string;
