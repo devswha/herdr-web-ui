@@ -42,7 +42,7 @@ import { herdrRpc, paneRead, sessionSnapshot, type ProcessInfo } from "./herdr/c
 import { resolveAgent } from "./pane-context.ts";
 import { codexHistorySegments, createCodexTranscriptParser, codexOutputText, codexTranscriptPath, defaultCodexHome, forgetAllCodexState, forgetCodexStateFor, paneCodexHome, parseCodexTranscript, readRange } from "./codex.ts";
 import { CODEX_IMAGE_REF, codexTranscriptImage } from "./codex-images.ts";
-import { AmbiguousClaudeStore, claudeProcessSession, claudeTranscriptFile, defaultClaudeConfigDir, forgetClaudeSessionFile, forgetClaudeSessions, isClaudeProcess, processClaudeConfigDir } from "./claude-store.ts";
+import { AmbiguousClaudeStore, attachedJob, claudeJobSession, claudeProcessSession, claudeTranscriptFile, defaultClaudeConfigDir, forgetClaudeSessionFile, forgetClaudeSessions, isClaudeProcess, processClaudeConfigDir } from "./claude-store.ts";
 import { forgetGjcPane, forgetGjcState, gjcPidUnderShell, gjcTranscriptForPane, isGjcProcess, storeRelative } from "./gjc-runtime.ts";
 import { isOmoProcess, omoProcessIdentity, omoSessionForPane, processEnviron } from "./omo.ts";
 import { processStartedAt } from "./process-start.ts";
@@ -825,15 +825,18 @@ export async function claudePanePid(pane: HerdrPane): Promise<number | null> {
 
 /**
  * Claude's transcript: Herdr's hook, or a unique live Claude's native PID record, in the config dir
- * of the pane's Claude process (a launcher can give each environment its own CLAUDE_CONFIG_DIR).
+ * of the pane's Claude process (a launcher can give each environment its own CLAUDE_CONFIG_DIR). A
+ * `claude attach <job>` keeps no PID record: the background job's state names the session it shows.
+ * `onProcess` learns that process, and whether it is such an attach client.
  */
-async function claudeTranscriptPath(paneId: string, cwds: readonly (string | null | undefined)[], onProcess?: (pid: number) => void): Promise<string> {
+async function claudeTranscriptPath(paneId: string, cwds: readonly (string | null | undefined)[], onProcess?: (pid: number, attach: boolean) => void): Promise<string> {
   const info = await herdrRpc<{ agent: { agent_session?: { value?: unknown } } }>("agent.get", { target: paneId });
   let session = info.agent.agent_session?.value;
   const home = process.env["HOME"] ?? "";
   const processes = await claudeProcesses(paneId);
   const only = processes.length === 1 ? processes[0] : undefined;
-  if (only) onProcess?.(only.pid);
+  const job = only ? attachedJob(only.argv) : null;
+  if (only) onProcess?.(only.pid, job !== null);
   let processDir: string | null = null;
   try {
     processDir = only ? await processClaudeConfigDir(only.pid, only.argv ?? [only.argv0 ?? only.name ?? ""], home) : null;
@@ -843,7 +846,9 @@ async function claudeTranscriptPath(paneId: string, cwds: readonly (string | nul
     throw error;
   }
   const configDir = processDir || defaultClaudeConfigDir(home);
-  if ((typeof session !== "string" || !SESSION_ID.test(session)) && only) session = await claudeProcessSession(home, only.pid, configDir);
+  if ((typeof session !== "string" || !SESSION_ID.test(session)) && only) {
+    session = job !== null ? await claudeJobSession(configDir, job) : await claudeProcessSession(home, only.pid, configDir);
+  }
   if (typeof session !== "string" || !SESSION_ID.test(session)) throw new ConversationUnavailable("no_session_id");
   const path = await claudeTranscriptFile(home, session, cwds, configDir);
   // Claude writes the file with its first message: until then the session it reports holds nothing
@@ -854,9 +859,11 @@ async function claudeTranscriptPath(paneId: string, cwds: readonly (string | nul
 /** A Claude pane's transcript and when its Claude process started (null when it cannot be told), or null while it has no transcript. */
 export async function claudePaneSession(pane: HerdrPane): Promise<{ path: string; startedAt: number | null; pid: number | null } | null> {
   let pid: number | null = null;
+  let attach = false;
   try {
-    const path = await claudeTranscriptPath(pane.pane_id, [pane.cwd, pane.foreground_cwd], (found) => { pid = found; });
-    return { path, startedAt: pid === null ? null : processStartedAt(pid), pid };
+    const path = await claudeTranscriptPath(pane.pane_id, [pane.cwd, pane.foreground_cwd], (found, attached) => { pid = found; attach = attached; });
+    // an attach client starts after the job it shows: its start would leave the job's earlier background work lost (#1645)
+    return { path, startedAt: pid === null || attach ? null : processStartedAt(pid), pid };
   } catch (error) {
     if (error instanceof ConversationUnavailable) return null;
     throw error;
