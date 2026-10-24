@@ -3035,6 +3035,37 @@ describe("pi's dialogs", () => {
     expect(answerKeys(prompt, { option_index: 1 })).toEqual([{ keys: ["down"] }, { keys: ["enter"] }]);
   });
 
+  // senpi asks a confirm as a select titled `${title}\n${message}`, so a timeout ticks at the end of the message
+  test("keeps a timed confirm's card through its countdown, which ticks after its message", () => {
+    const confirm = (seconds: number, message = "All messages will be lost.") => piScreen(` Clear session?\n ${message} (${seconds}s)\n\n → Yes\n   No\n ↑↓ navigate  enter select  esc/ctrl+c cancel`);
+    const prompt = parseInteractivePrompt("pi", confirm(9))!;
+    expect(prompt.kind).toBe("approval");
+    expect(prompt.question).toBe("All messages will be lost. (9s)");
+    // a Yes tapped after a tick answers the same card
+    expect(parseInteractivePrompt("pi", confirm(8))!.id).toBe(prompt.id);
+    expect(parseInteractivePrompt("pi", confirm(9, "Only this tab is cleared."))!.id).not.toBe(prompt.id);
+    // a narrow pane can wrap `(10s)` onto a line of its own where `(9s)` still fits
+    const wrappedCount = piScreen(" Clear session?\n All messages will be lost.\n (10s)\n\n \u2192 Yes\n   No\n \u2191\u2193 navigate  enter select  esc/ctrl+c cancel");
+    expect(parseInteractivePrompt("pi", wrappedCount)!.id).toBe(prompt.id);
+  });
+
+  // senpi's text input counts down in its title
+  test("keeps a timed input's card through its countdown, which ticks after its title", () => {
+    const input = (seconds: number, title = "Branch name?") => piScreen(` ${title} (${seconds}s)\n\n>\n enter submit  esc/ctrl+c cancel`);
+    const prompt = parseInteractivePrompt("pi", input(9))!;
+    expect(prompt.custom_option_index).toBe(0);
+    expect(prompt.question).toBe("Branch name? (9s)");
+    expect(parseInteractivePrompt("pi", input(8))!.id).toBe(prompt.id);
+    expect(parseInteractivePrompt("pi", input(9, "Tag name?"))!.id).not.toBe(prompt.id);
+    // as senpi wraps a title at 46 columns: the count alone on the last line, as the count is
+    const narrow = (seconds: number, grace = 30) => piScreen(` Restart with a grace period of (${grace}s)\n before deploying? (${seconds}s)\n\n>\n enter submit  esc/ctrl+c cancel`);
+    const alone = (seconds: number) => piScreen(` What should the new release branch be named?\n (${seconds}s)\n\n>\n enter submit  esc/ctrl+c cancel`);
+    expect(parseInteractivePrompt("pi", alone(8))!.id).toBe(parseInteractivePrompt("pi", alone(9))!.id);
+    expect(parseInteractivePrompt("pi", narrow(8))!.id).toBe(parseInteractivePrompt("pi", narrow(9))!.id);
+    // a count on an earlier line is the question's own words
+    expect(parseInteractivePrompt("pi", narrow(9, 60))!.id).not.toBe(parseInteractivePrompt("pi", narrow(9))!.id);
+  });
+
   test("lets the chat type an answer to a dialog that wants text", () => {
     const prompt = parseInteractivePrompt("pi", piScreen(" Branch name?\n\n>\n enter submit  escape/ctrl+c cancel"))!;
     expect(prompt.question).toBe("Branch name?");
