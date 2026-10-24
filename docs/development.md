@@ -776,6 +776,13 @@ and `release.yml` stay on `ubuntu-24.04` unless the variable holds labels. The v
   or on a manual dispatch with reusable CI validation;
 - in `release.yml`: the preflight and publish jobs.
 
+A push to main takes the repository variable `CI_MAIN_SELF_HOSTED_LABELS` over
+`CI_SELF_HOSTED_LABELS` when it is set: `["self-hosted","self-hosted-ovis-main"]` sends main's Linux
+jobs to the runners `run.sh --reserved` keeps for them, so a merge's CI does not queue behind pull
+request runs, and `"ubuntu-24.04"` keeps only main GitHub-hosted. `CI_SELF_HOSTED_LABELS` set to
+`"ubuntu-24.04"` still keeps every job hosted. Delete the variable while no reserved runner is online,
+or main's jobs wait for one.
+
 Detect changes, the Integration and browser summary, the Windows and macOS jobs,
 `remote-bundles.yml` and `windows-install.yml` always stay GitHub-hosted.
 
