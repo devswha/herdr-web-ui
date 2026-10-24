@@ -1941,6 +1941,41 @@ describe("typing without terminal attach, at the edges", () => {
     }
   }, 30_000);
 
+  it("types nothing of an input line for a sender that switched to observe while herdr was being reached", async () => {
+    const bare = createServer({ port: 0, stateDir: join(root, "observe-typed-line"), terminalAttach: false });
+    const sender = await Socket.connect(bare.port);
+    const keeper = await Socket.connect(bare.port);
+    const gate = deferred();
+    const entered = deferred();
+    const line = "a line held while herdr is reached";
+    const originalSend = herdr.paneSendText;
+    // every check before the RPC has passed; the sender switches to watching before herdr is written to
+    const send = spyOn(herdr, "paneSendText").mockImplementation(async (paneId, text, socketPath, guard) => {
+      if (paneId === shell.pane && text === line) { entered.resolve(); await gate.promise; }
+      return originalSend(paneId, text, socketPath, guard);
+    });
+    try {
+      for (const socket of [keeper, sender]) await attached(socket, shell.pane);
+      const from = chunks(shell).length;
+      sender.send({ type: "submit", id: 1180, pane_id: shell.pane, text: line, payload: line, typed: true });
+      await entered.promise;
+      sender.send({ type: "role", mode: "observe" });
+      await sender.waitFor((frame) => frame.type === "role-ack" && frame.mode === "observe");
+      gate.resolve();
+      expect(await sender.result(1180)).toMatchObject({ ok: false, code: "read_only" });
+      keeper.send({ type: "submit", id: 1181, pane_id: shell.pane, text: "after", payload: "after", typed: true });
+      expect(await keeper.result(1181)).toMatchObject({ ok: true });
+      await received(shell, from, 1);
+      expect(typed(shell, from)).toBe("after\r");
+    } finally {
+      gate.resolve();
+      send.mockRestore();
+      sender.close();
+      keeper.close();
+      bare.stop();
+    }
+  }, 30_000);
+
   it("enters no secret for a sender that switched to observe and back while the screen was read (#589)", async () => {
     const bare = createServer({ port: 0, stateDir: join(root, "push-role-secret"), terminalAttach: false });
     const sender = await Socket.connect(bare.port);

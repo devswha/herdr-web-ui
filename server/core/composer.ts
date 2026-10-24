@@ -300,6 +300,8 @@ export function createSubmitText({ options, lastTyped, attachments, terminalAtta
     const mayType = (): boolean => {
       try { authorize(); return true; } catch (error) { refused = error; return false; }
     };
+    /** A write mayType stopped fails with the sender's own refusal (read_only, device_revoked), not herdr's `cancelled`. */
+    const refusal = (error: unknown): never => { throw refused ?? error; };
     const typed = Date.now() - (lastTyped.get(paneId) ?? 0);
     // fixed wait: herdr holds a lone ESC typed through the attach pty and says nothing when it lets go
     if (typed < TYPED_SETTLE_MS) await Bun.sleep(TYPED_SETTLE_MS - typed);
@@ -533,11 +535,11 @@ export function createSubmitText({ options, lastTyped, attachments, terminalAtta
       // asked only for such a block, so a one-line message never waits on it.
       const shaped = await mirrorInput(closeMention(sentText === text ? payload : sentText), async () => await terminalAttach() ? null : await paneAgentOf(paneId));
       inTime();
-      await paneSendText(paneId, shaped);
+      await paneSendText(paneId, shaped, undefined, mayType).catch(refusal);
       // fixed wait: a TUI busy with the paste takes an Enter in the same chunk for a newline (SUBMIT_DELAY_MS)
       await Bun.sleep(options.submitDelayMs ?? SUBMIT_DELAY_MS);
       authorize();
-      await paneSendKeys(paneId, ["Enter"]);
+      await paneSendKeys(paneId, ["Enter"], undefined, mayType).catch(refusal);
       noteSubmitted(paneId, sentText, recorded(command));
     } catch (error) {
       if (clearedDraft) {

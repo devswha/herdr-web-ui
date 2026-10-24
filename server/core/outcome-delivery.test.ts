@@ -265,8 +265,8 @@ it("delivers a terminal input-line command without requiring paneGet", async () 
   const text = spyOn(client, "paneSendText").mockResolvedValue();
   const keys = spyOn(client, "paneSendKeys").mockResolvedValue();
   await submitter()(pane.pane_id, "/context", "/context", Date.now(), true);
-  expect(text).toHaveBeenCalledWith(pane.pane_id, "/context");
-  expect(keys).toHaveBeenCalledWith(pane.pane_id, ["Enter"]);
+  expect(text).toHaveBeenCalledWith(pane.pane_id, "/context", undefined, expect.any(Function));
+  expect(keys).toHaveBeenCalledWith(pane.pane_id, ["Enter"], undefined, expect.any(Function));
   expect(paneGet).not.toHaveBeenCalled();
 });
 

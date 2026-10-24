@@ -30,8 +30,8 @@ it("still types a short input line, an answer into an open menu included", async
   const { prompt, typed, keys } = herdr();
   await submitter()("w:p1", "2", "2", Date.now(), true);
   expect(prompt).not.toHaveBeenCalled();
-  expect(typed).toHaveBeenCalledWith("w:p1", "2");
-  expect(keys).toHaveBeenCalledWith("w:p1", ["Enter"]);
+  expect(typed).toHaveBeenCalledWith("w:p1", "2", undefined, expect.any(Function));
+  expect(keys).toHaveBeenCalledWith("w:p1", ["Enter"], undefined, expect.any(Function));
 });
 
 for (const code of ["agent_not_found", "agent_not_ready", "agent_blocked"]) {
@@ -39,8 +39,8 @@ for (const code of ["agent_not_found", "agent_not_ready", "agent_blocked"]) {
     const { prompt, typed, keys } = herdr();
     prompt.mockRejectedValue(new client.HerdrError(code, "fixture refusal"));
     await submitter()("w:p1", LONG, LONG, Date.now(), true);
-    expect(typed).toHaveBeenCalledWith("w:p1", LONG);
-    expect(keys).toHaveBeenCalledWith("w:p1", ["Enter"]);
+    expect(typed).toHaveBeenCalledWith("w:p1", LONG, undefined, expect.any(Function));
+    expect(keys).toHaveBeenCalledWith("w:p1", ["Enter"], undefined, expect.any(Function));
   });
 }
 

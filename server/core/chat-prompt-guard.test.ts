@@ -50,6 +50,6 @@ it("still types a chat message into a pane herdr finds no agent in", async () =>
   const typed = spyOn(client, "paneSendText").mockResolvedValue();
   const keys = spyOn(client, "paneSendKeys").mockResolvedValue();
   await submitter()(pane.pane_id, "hello", "hello", Date.now());
-  expect(typed).toHaveBeenCalledWith(pane.pane_id, "hello");
-  expect(keys).toHaveBeenCalledWith(pane.pane_id, ["Enter"]);
+  expect(typed).toHaveBeenCalledWith(pane.pane_id, "hello", undefined, expect.any(Function));
+  expect(keys).toHaveBeenCalledWith(pane.pane_id, ["Enter"], undefined, expect.any(Function));
 });
