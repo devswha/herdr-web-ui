@@ -91,12 +91,14 @@ for Ovis's code, with a link to the place that defines each one.
 | **Tab** | A herdr tab: one or more panes split inside one workspace, as herdr's prefix+c makes. Not a browser tab. | [Quick start](docs/guide.md#quick-start), [Features](docs/guide.md#features) |
 | **Workspace** | A herdr workspace: a project's group of tabs and their panes, one sidebar row each. | [Quick start](docs/guide.md#quick-start) |
 | **PC** | This computer or a remote one reached over SSH, each through its own herdr socket. The sidebar groups PC → workspace → pane, and drafts, held messages, recent panes and notifications name the PC together with the pane. | [Remote PCs](docs/remote-pcs.md), [Disconnects and updates](docs/remote-pcs.md#disconnects-and-updates) |
-| **Agent session** | An agent's own conversation: its ID and history in that agent's store, which a resume reopens. Not a pane, a workspace or a herdr session. | `SessionHistoryRow` in [shared/session-history.ts](shared/session-history.ts), [How it works](docs/guide.md#how-it-works) |
+| **Agent session** | An agent's own conversation: its ID and history in that agent's store. A resumable session-history row can reopen it; not every row carries resume data. Not a pane, a workspace or a herdr session. | `SessionHistoryRow` in [shared/session-history.ts](shared/session-history.ts), [How it works](docs/guide.md#how-it-works) |
 
-A **browser tab** is a window of Ovis; it shows herdr tabs but is not one. A **herdr session**
-is a running herdr server, picked by its socket ([`HERDR_SOCKET`](docs/guide.md#configuration)),
-whose workspaces Ovis shows; it is not an agent session. Both are called sessions in the code and
-the docs, so say which one when the context does not. The dialog that makes a workspace is
+A **browser tab** is the browser tab showing Ovis; it shows herdr tabs but is not one. A
+**herdr session** is a running herdr server, picked by its socket
+([`HERDR_SOCKET`](docs/guide.md#configuration)), whose workspaces Ovis shows; it is not an agent
+session. The code and the docs call both a herdr session (the server's herdr instance) and an
+agent session (a coding agent's conversation history) a session, so say which one you mean when
+the context does not make it clear. The dialog that makes a workspace is
 **New workspace** (the UI wording test in [src/conventions.test.ts](src/conventions.test.ts)).
 
 ## What a change needs
