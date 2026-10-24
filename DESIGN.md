@@ -538,6 +538,9 @@ The values are the ones in `src/styles.css`. Every token but `--fs-input` is `ca
   is no part of the rule; the chat's and the composer's own rules keep it. The file viewer's
   virtualized source rows live in `@pierre/diffs`' shadow root, which document CSS does not reach:
   they inherit `body`'s value.
+  The hidden measuring copy (`.composer-measure`) also takes the live textarea's
+  `::-webkit-scrollbar` rules, so both reserve the same scrollbar width. Design precedent: none in
+  the UI; the hidden measuring copy now matches the live textarea, with no visible change.
 - `text-wrap: balance` on `.modal-title`, `.composer-greeting-title` and a Settings group's
   caption (`.settings-section h3`): a title that wraps takes even lines, never a full line over a
   one-word stub.
