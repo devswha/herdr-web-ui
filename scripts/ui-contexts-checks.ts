@@ -19,6 +19,7 @@ import { checkTerminalPinch } from "./terminal-pinch-regression.ts";
 import { checkKeyBarKeepsKeyboardDown } from "./keybar-focus-regression.ts";
 import { checkMobileTabs } from "./mobile-tabs-regression.ts";
 import { checkHeaderLensSwitch } from "./header-lens-switch-regression.ts";
+import { checkTerminalComposition } from "./terminal-composition-regression.ts";
 import { checkTabMenu } from "./tab-menu-regression.ts";
 import { checkDefaultView } from "./default-view-regression.ts";
 import { checkTerminalInputSpacing } from "./terminal-input-spacing-regression.ts";
@@ -98,6 +99,7 @@ export async function runUiContextChecks(): Promise<void> {
     await timed("checkKeyBarKeepsKeyboardDown", () => checkKeyBarKeepsKeyboardDown(browser!, origin));
     await timed("checkMobileTabs", () => checkMobileTabs(browser!, origin));
     await timed("checkHeaderLensSwitch", () => checkHeaderLensSwitch(browser!, origin));
+    await timed("checkTerminalComposition", () => checkTerminalComposition(browser!, origin));
     await timed("checkTabMenu", () => checkTabMenu(browser!, origin));
     await timed("checkDefaultView", () => checkDefaultView(browser!, origin));
     await timed("checkTerminalInputSpacing", () => checkTerminalInputSpacing(browser!, origin));

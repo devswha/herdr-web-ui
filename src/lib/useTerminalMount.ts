@@ -217,13 +217,10 @@ export function useTerminalMount(deps: TerminalMountDeps): void {
       // the one attribute Chrome turns into the keyboard's NO_SUGGESTIONS
       term.textarea?.setAttribute("autocomplete", "off");
       const syncInputViewport = (): void => {
-        // only a grid this browser does not size (a mirror, an observer's, a followed one) scrolls its helper
-        // out of view; a grid it drives keeps stock xterm: the browser brings the prompt back into view, and a
-        // long IME preedit at the right edge stays whole
-        if (!fixedGridRef.current && !observeRef.current && !followRef.current) {
-          term.setTextAreaViewportBounds(undefined);
-          return;
-        }
+        // every grid confines xterm's helper textarea and IME preedit to the host's visible box: a grid
+        // this browser drives fits the host's width, so it never pans, yet a long preedit (a phone's voice
+        // typing sends one, growing with every word) made the browser scroll the host sideways to keep the
+        // helper's caret in view, and the whole grid slid off to the left and stayed there
         const screen = term.element?.querySelector<HTMLElement>(".xterm-screen");
         if (!screen) return;
         const hostRect = host.getBoundingClientRect();
