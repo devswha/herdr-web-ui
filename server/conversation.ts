@@ -826,8 +826,8 @@ export async function claudePanePid(pane: HerdrPane): Promise<number | null> {
 /**
  * Claude's transcript: Herdr's hook, or a unique live Claude's native PID record, in the config dir
  * of the pane's Claude process (a launcher can give each environment its own CLAUDE_CONFIG_DIR). A
- * `claude attach <job>` keeps no PID record: the background job's state names the session it shows.
- * `onProcess` learns that process, and whether it is such an attach client.
+ * `claude attach <job>` keeps no PID record: the background job's state names the session it shows,
+ * ahead of the hook's. `onProcess` learns that process, and whether it is such an attach client.
  */
 async function claudeTranscriptPath(paneId: string, cwds: readonly (string | null | undefined)[], onProcess?: (pid: number, attach: boolean) => void): Promise<string> {
   const info = await herdrRpc<{ agent: { agent_session?: { value?: unknown } } }>("agent.get", { target: paneId });
@@ -846,8 +846,12 @@ async function claudeTranscriptPath(paneId: string, cwds: readonly (string | nul
     throw error;
   }
   const configDir = processDir || defaultClaudeConfigDir(home);
-  if ((typeof session !== "string" || !SESSION_ID.test(session)) && only) {
-    session = job !== null ? await claudeJobSession(configDir, job) : await claudeProcessSession(home, only.pid, configDir);
+  if (job !== null) {
+    // the job's state names what the attach shows; a session an earlier Claude in this pane reported
+    // through the hook can still be herdr's, so it stands only when the job names none
+    session = await claudeJobSession(configDir, job) ?? session;
+  } else if ((typeof session !== "string" || !SESSION_ID.test(session)) && only) {
+    session = await claudeProcessSession(home, only.pid, configDir);
   }
   if (typeof session !== "string" || !SESSION_ID.test(session)) throw new ConversationUnavailable("no_session_id");
   const path = await claudeTranscriptFile(home, session, cwds, configDir);

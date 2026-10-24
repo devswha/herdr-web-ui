@@ -448,10 +448,11 @@ it.skipIf(!NATIVE)("uses each process's config dir before the server's store, wi
  * A pane whose foreground runs `claude attach <job>` with the native build's argv, and no PID record:
  * the renamed Node runs `attach` in the workspace folder as its script, so the arguments stay as typed.
  */
-async function attachPane(job: string): Promise<{ pane: string; pid: number }> {
+async function attachPane(job: string, before?: (pane: string) => Promise<void>): Promise<{ pane: string; pid: number }> {
   const created = await herdrRpc<Awaited<ReturnType<typeof workspaceCreate>>>("workspace.create", { cwd: root, label: "ovis-test-claude-attach", focus: false });
   workspaces.push(created.workspace.workspace_id);
   const paneId = created.root_pane.pane_id;
+  await before?.(paneId);
   writeFileSync(join(root, "attach"), `require("node:net").connect(Number(process.env.ATTACH_READY), "127.0.0.1", function () { this.end(String(process.pid)); });
 process.stdin.resume();
 `);
@@ -492,4 +493,25 @@ it.skipIf(process.platform !== "linux")("follows a `claude attach <job>` pane to
   // the job ran before the client attached: the client's start would leave the job's earlier background work lost
   expect(await claudePaneSession({ pane_id: attach.pane, cwd: root, foreground_cwd: root } as HerdrPane))
     .toEqual({ path: join(project, `${resumed}.jsonl`), startedAt: null, pid: attach.pid });
+});
+
+it.skipIf(process.platform !== "linux")("shows the attached job's conversation, not a session an earlier Claude in the pane reported (#1645)", async () => {
+  const job = "7a8b9c0d";
+  const shown = "1f2e3d4c-5b6a-4798-8a7b-6c5d4e3f2a1b";
+  transcript(shown);
+  mkdirSync(join(root, ".claude", "jobs", job), { recursive: true });
+  writeFileSync(join(root, ".claude", "jobs", job, "state.json"), JSON.stringify({ sessionId: shown, state: "running" }));
+  // a reused pane: the Claude that ran here before reported its session through the hook
+  const attach = await attachPane(job, async (paneId) => {
+    await herdrRpc("pane.report_agent", { pane_id: paneId, source: "manual", agent: "claude", state: "idle" });
+    await herdrRpc("pane.report_agent_session", {
+      pane_id: paneId, source: "herdr:claude", agent: "claude", seq: 1, agent_session_id: FIRST,
+    });
+  });
+  // herdr still reports that earlier session once `claude attach` is the foreground process
+  const info = await herdrRpc<{ agent: { agent_session?: { value?: unknown } } }>("agent.get", { target: attach.pane });
+  expect(info.agent.agent_session?.value).toBe(FIRST);
+  const conversation = await read(attach.pane);
+  expect(conversation.source).toBe("claude-transcript");
+  expect(conversation.turns.at(-1)?.parts[0]).toMatchObject({ text: `Answer ${shown}` });
 });
