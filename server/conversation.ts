@@ -752,9 +752,17 @@ export async function paneProcessRoots(paneId: string, agent: string | null | un
   }));
   const matched = agent && ["claude", "codex", "omp", "gjc", "pi", "opencode", "devin", "grok", "hermes", "agy"].includes(agent)
     ? agentProcesses(foreground, agent)[0] ?? null : null;
+  // the omo process that holds a session wins over an omo-looking one listed before it (omo's bundled
+  // Claude SDK binary under /omo-ai/, a helper script): typing follows the held one
+  let chosen: { process: (typeof foreground)[number]; identity: NonNullable<ReturnType<typeof omoProcessIdentity>> } | null = null;
   for (const process of foreground) {
     const identity = omoProcessIdentity(process, "", home);
-    if (!identity) continue;
+    if (!identity || (chosen !== null && !identity.held)) continue;
+    chosen = { process, identity };
+    if (identity.held) break;
+  }
+  if (chosen !== null) {
+    const { process, identity } = chosen;
     const agentDir = directory(identity.agentDir);
     const argv = process.argv.map((word) => word.replace(/\\/g, "/"));
     const extension = argv.find((word, index) => argv[index - 1] === "--extension" && /\/omo-ai\/plugin\/?$/.test(word));
@@ -781,10 +789,7 @@ export async function paneProcessRoots(paneId: string, agent: string | null | un
         catch { /* no readable installed plugin */ }
       }
     }
-    // a holder counts only while this pid's start is readable: without it (Windows) a crashed omo's
-    // record could name a pid another process reuses
-    const held = identity.heldIds.length > 0 && processStartedAt(process.pid) !== null;
-    return { omo: { agentDir, pluginDir, held }, environ: processEnviron(process.pid), pid: process.pid, cwd: process.cwd || null, ...(processes ? { processes } : {}) };
+    return { omo: { agentDir, pluginDir, held: identity.held }, environ: processEnviron(process.pid), pid: process.pid, cwd: process.cwd || null, ...(processes ? { processes } : {}) };
   }
   return { omo: null, environ: matched ? processEnviron(matched.pid) : null, pid: matched?.pid ?? null, cwd: matched?.cwd || null, ...(processes ? { processes } : {}) };
 }
