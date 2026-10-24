@@ -103,7 +103,11 @@ export function useSelectionMark({ selectedMachineId, selectedPaneId }: { select
   useLayoutEffect(() => {
     selectionRef.current = markSelection(selectionRef.current, selectedMachineId, selectedPaneId);
   }, [selectedMachineId, selectedPaneId]);
-  return { selectionRef };
+  // panes a tab move has on its way to another workspace (paneStorageId): herdr can drop the old ID
+  // from a roster before the move answers with the new one, and until it does neither the selection
+  // nor the split's other half falls back from it
+  const movingPanes = useRef(new Set<string>());
+  return { selectionRef, movingPanes };
 }
 
 export function useSelectTarget({ selectedMachineId, setConnected, setConnectedBefore, setSelectedMachineId, setSelectedPaneId, setAutoSelected, setDrawerOpen, setOutputStopped, setNotificationViewTarget, setTerminalPeek, pendingLink, pendingFile, setLinkLanded, selectionHint, selectionSince, rosterSeq, snapshot, selectedMachine, selectedPaneId, setHeaderNote, linkTick, movingPanes }: {
